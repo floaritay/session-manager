@@ -51,3 +51,56 @@ class SessionSummary(BaseModel):
     duration_ms: int | None = None
     ai_title: str = ""
     git_branch: str = ""
+
+
+class SkillSummary(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    license: str = ""
+    plugin_name: str
+    marketplace: str
+    file_path: str
+    body_preview: str = ""
+    scope: str = "user"  # "user" | "project"
+    project_path: str = ""
+
+
+class McpServerSummary(BaseModel):
+    id: str
+    name: str
+    transport_type: str  # "stdio" | "http" | "sse"
+    command: str = ""
+    args: list[str] = []
+    url: str = ""
+    headers: dict = {}
+    marketplace: str = ""
+    source_file: str = ""
+    scope: str = "user"  # "user" | "project"
+    project_path: str = ""
+
+
+class RuleSummary(BaseModel):
+    id: str
+    name: str
+    scope: str  # "user" | "project"
+    file_path: str
+    content_preview: str = ""
+    content_length: int = 0
+    project_path: str = ""
+
+
+class PluginSummary(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    author: str = ""
+    marketplace: str
+    version: str = ""
+    enabled: bool = False
+    blocked: bool = False
+    installed_at: str = ""
+    skill_count: int = 0
+    install_path: str = ""
+    scope: str = "user"  # "user" | "project"
+    project_path: str = ""

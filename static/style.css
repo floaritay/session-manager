@@ -680,3 +680,125 @@ header {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════ NAVIGATION ═══════ */
+
+.main-nav {
+    display: flex;
+    gap: 0;
+    border: 2px solid var(--text);
+    flex-shrink: 0;
+}
+
+.nav-btn {
+    padding: 5px 14px;
+    border: none;
+    border-right: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-ghost);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: color 0.1s, background 0.1s;
+}
+
+.nav-btn:last-child { border-right: none; }
+.nav-btn:hover { color: var(--text-secondary); }
+
+.nav-btn.active {
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 700;
+}
+
+.session-controls {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.session-controls.hidden { display: none; }
+
+/* ═══════ CONFIG TAGS ═══════ */
+
+.source-tag.stdio { color: var(--amber); border-color: #fcd34d; background: var(--amber-dim); }
+.source-tag.http { color: var(--green); border-color: #a7f3d0; background: var(--green-dim); }
+.source-tag.sse { color: var(--purple); border-color: #c4b5fd; background: var(--purple-dim); }
+.source-tag.enabled { color: var(--green); border-color: #a7f3d0; background: var(--green-dim); }
+.source-tag.blocked { color: var(--red); border-color: #fca5a5; background: var(--red-dim); }
+.source-tag.user { color: var(--amber); border-color: #fcd34d; background: var(--amber-dim); }
+.source-tag.project { color: var(--purple); border-color: #c4b5fd; background: var(--purple-dim); }
+.source-tag.skill { color: var(--amber); border-color: #fcd34d; background: var(--amber-dim); }
+
+/* ═══════ DETAIL CONTENT ═══════ */
+
+.detail-content {
+    padding: 24px;
+    font-size: 13px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-y: auto;
+    flex: 1;
+    background: var(--bg);
+    font-family: var(--font);
+    color: var(--text);
+}
+
+.detail-content h1, .detail-content h2, .detail-content h3 {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    font-weight: 700;
+}
+
+.detail-content h1 { font-size: 18px; }
+.detail-content h2 { font-size: 16px; }
+.detail-content h3 { font-size: 14px; }
+
+.detail-content code {
+    background: var(--bg-surface);
+    padding: 2px 6px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+}
+
+.detail-content pre {
+    background: var(--bg-surface);
+    padding: 12px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.detail-content pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.detail-content ul, .detail-content ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.detail-content li {
+    margin-bottom: 4px;
+}
+
+.detail-content blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 12px;
+    margin: 8px 0;
+    color: var(--text-secondary);
+}
+
+.detail-content a {
+    color: var(--purple);
+    text-decoration: none;
+}
+
+.detail-content a:hover {
+    text-decoration: underline;
+}

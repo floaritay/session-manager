@@ -12,16 +12,25 @@
     <div id="app">
         <header>
             <div class="logo">对话管理</div>
-            <div class="filters">
-                <button class="filter-btn active" data-source="all">全部</button>
-                <button class="filter-btn" data-source="claude">Claude</button>
-                <button class="filter-btn" data-source="codex">Codex</button>
-            </div>
-            <div class="group-by">
-                <span class="group-label">分组:</span>
-                <button class="group-btn active" data-group="project">项目</button>
-                <button class="group-btn" data-group="time">时间</button>
-                <button class="group-btn" data-group="model">模型</button>
+            <nav class="main-nav">
+                <button class="nav-btn active" data-section="sessions">对话</button>
+                <button class="nav-btn" data-section="skills">Skills</button>
+                <button class="nav-btn" data-section="mcp">MCP</button>
+                <button class="nav-btn" data-section="rules">Rules</button>
+                <button class="nav-btn" data-section="plugins">Plugins</button>
+            </nav>
+            <div class="session-controls">
+                <div class="filters">
+                    <button class="filter-btn active" data-source="all">全部</button>
+                    <button class="filter-btn" data-source="claude">Claude</button>
+                    <button class="filter-btn" data-source="codex">Codex</button>
+                </div>
+                <div class="group-by">
+                    <span class="group-label">分组:</span>
+                    <button class="group-btn active" data-group="project">项目</button>
+                    <button class="group-btn" data-group="time">时间</button>
+                    <button class="group-btn" data-group="model">模型</button>
+                </div>
             </div>
             <div class="search-wrap">
                 <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>

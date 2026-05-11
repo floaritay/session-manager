@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from app.services.config_service import ConfigService
 from app.services.session_service import SessionService
 
 class BatchDeleteRequest(BaseModel):
@@ -13,6 +14,7 @@ class BatchDeleteRequest(BaseModel):
 
 app = FastAPI(title="Session Manager")
 service = SessionService()
+config_service = ConfigService()
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -86,3 +88,50 @@ async def delete_session(source: str, session_id: str):
     if not ok:
         raise HTTPException(404, "Session not found or delete failed")
     return {"ok": True}
+
+
+# ── Config Management Routes ──
+
+@app.get("/api/config/stats")
+async def get_config_stats():
+    return config_service.get_config_stats()
+
+
+@app.get("/api/skills")
+async def list_skills(q: str | None = None):
+    skills = config_service.list_skills(q)
+    return [s.model_dump(mode="json") for s in skills]
+
+
+@app.get("/api/skills/{skill_id:path}/body")
+async def get_skill_body(skill_id: str):
+    body = config_service.get_skill_body(skill_id)
+    if not body:
+        raise HTTPException(404, "Skill not found")
+    return PlainTextResponse(body, media_type="text/markdown")
+
+
+@app.get("/api/mcp")
+async def list_mcp_servers(q: str | None = None):
+    servers = config_service.list_servers(q)
+    return [s.model_dump(mode="json") for s in servers]
+
+
+@app.get("/api/rules")
+async def list_rules(scope: str | None = None, q: str | None = None):
+    rules = config_service.list_rules(scope, q)
+    return [r.model_dump(mode="json") for r in rules]
+
+
+@app.get("/api/rules/{rule_id:path}/content")
+async def get_rule_content(rule_id: str):
+    content = config_service.get_rule_content(rule_id)
+    if not content:
+        raise HTTPException(404, "Rule not found")
+    return PlainTextResponse(content, media_type="text/plain")
+
+
+@app.get("/api/plugins")
+async def list_plugins(q: str | None = None):
+    plugins = config_service.list_plugins(q)
+    return [p.model_dump(mode="json") for p in plugins]

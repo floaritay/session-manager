@@ -1,51 +1,51 @@
 # Session Manager
 
-管理 Claude Code 和 OpenAI Codex 对话记录的本地 Web 应用。
+管理 Claude Code 和 OpenAI Codex 对话记录，以及 Claude Code 配置（Skills、MCP、Rules、Plugins）的本地 Web 应用。
 
 ## 功能特性
 
-### 对话浏览
+### 对话管理
 
 - 统一查看 Claude Code 和 OpenAI Codex 的所有对话记录
 - 按来源筛选：全部 / 仅 Claude / 仅 Codex
-- 三种分组方式：
-  - **按项目**：按对话所属项目目录分组
-  - **按时间**：今天 / 昨天 / 本周 / 本月 / 更早
-  - **按模型**：按使用的 AI 模型分组
+- 三种分组方式：按项目、按时间（今天/昨天/本周/本月/更早）、按模型
 - 每个分组默认展开，点击分组标题可折叠/展开
 - 全文搜索：同时搜索对话标题和消息内容
-
-### 对话详情
-
 - 点击对话进入详情视图，显示完整对话内容
-- 消息角色区分：用户消息（灰色背景）、助手消息（白色背景）、系统消息（黄色居中）
-- 每条消息下方显示紧凑信息行：
-  - 工具调用名称（绿色，有错误时显示红色）
-  - 思考过程标记（紫色）
-  - Token 用量（输入/输出）
-  - 消息时间戳
-- 点击信息行可展开查看详细内容：
-  - 工具调用的完整输入参数（JSON 格式）
-  - 工具调用的返回结果
-  - 工具调用耗时（毫秒）
-  - 思考过程全文
-- 支持查看子代理（Subagent）调用记录
+- 消息下方显示紧凑信息行：工具调用名称、思考过程、Token 用量、时间戳
+- 点击信息行可展开查看工具调用参数、返回结果、思考过程全文
+- 查看子代理（Subagent）调用记录
+- 导出对话为 Markdown / JSON 格式
+- 删除对话至系统回收站
+- 统计面板：对话数、消息数、Token 总量、常用工具
 
-### 统计面板
+### Skills 管理
 
-页面顶部显示四项统计：
-- **对话**：对话总数
-- **消息**：所有对话的消息总数
-- **TOKENS**：输入 + 输出 Token 总量（自动格式化为 K/M）
-- **常用工具**：使用频率最高的 5 个工具及其调用次数
+- 查看所有已安装的 Skills，按用户级/项目级分组
+- 每组内按插件名分组，显示 Skill 名称、描述、来源市场
+- 点击 Skill 查看完整 SKILL.md 内容（Markdown 渲染）
+- 只显示已安装版本，自动过滤旧缓存避免重复
 
-统计数据缓存 60 秒，删除对话后自动刷新。
+### MCP 服务器管理
 
-### 对话管理
+- 查看所有配置的 MCP 服务器，按用户级/项目级分组
+- 显示传输类型（stdio/http/sse）、命令或 URL
+- 用户级来自 `~/.claude/plugins/marketplaces/` 和 `settings.json`
+- 项目级来自项目目录下的 `.mcp.json` 和 `settings.local.json`
 
-- **导出**：将对话导出为 Markdown 或 JSON 格式，在新窗口打开
-- **删除**：单个删除，移至系统回收站（非永久删除）
-- **批量删除**：API 支持批量删除多条对话
+### Rules 管理
+
+- 查看所有规则文件，按用户级/项目级分组
+- 用户级：`~/.CLAUDE.md`
+- 项目级：各项目的 `CLAUDE.md` 和 `.claude/settings.local.json`
+- 点击规则查看完整文件内容
+
+### Plugins 管理
+
+- 查看所有已安装插件，按用户级/项目级分组
+- 每组内按市场来源分组
+- 显示启用/禁用/封锁状态、Skill 数量、描述
+- 统计面板显示已启用插件数量
 
 ### 键盘快捷键
 
@@ -88,48 +88,65 @@ taskkill //F //PID <进程ID>
 
 ## 数据来源
 
-### Claude Code
+### 对话记录
 
-- **路径**：`~/.claude/projects/<编码路径>/<uuid>.jsonl`
-- **解析方式**：两遍扫描 JSONL 文件
-  - 第一遍：提取会话元数据（AI 生成标题、时长、Git 分支、时间戳）
-  - 第二遍：构建消息列表，通过 `pending_tool_calls` 字典匹配 `tool_use` 和 `tool_result`
-- **子代理**：读取 `subagents/` 目录下的 `.meta.json` 文件
-- **删除**：通过 `send2trash` 移至回收站
+- **Claude Code**：`~/.claude/projects/<编码路径>/<uuid>.jsonl`，两遍扫描解析
+- **OpenAI Codex**：`~/.codex/state_5.sqlite` + rollout JSONL 文件
 
-### OpenAI Codex
+### Skills
 
-- **路径**：`~/.codex/state_5.sqlite`（会话元数据）+ rollout JSONL 文件（消息内容）
-- **解析方式**：从 SQLite `threads` 表读取会话信息，两遍解析 rollout 文件
-  - `exec_command_begin/end` 事件 → ToolCall 对象
-  - `token_count` 事件 → TokenUsage
-  - `task_complete` 事件 → 时长计算
-- **删除**：同时删除 SQLite 记录和 rollout 文件
+- 路径：`~/.claude/plugins/cache/<市场>/<插件>/<版本>/skills/<名称>/SKILL.md`
+- 只读取 `installed_plugins.json` 中已安装的版本，避免旧缓存重复
+- 解析 YAML frontmatter（name、description、license）
+
+### MCP 服务器
+
+- 用户级：`~/.claude/plugins/marketplaces/*/external_plugins/*/.mcp.json` + `settings.json` mcpServers
+- 项目级：项目目录下 `.mcp.json` + `.claude/settings.local.json` mcpServers
+- 支持三种传输类型：stdio（命令行）、http（远程）、sse（Server-Sent Events）
+
+### Rules
+
+- 用户级：`~/.CLAUDE.md`
+- 项目级：`<项目>/CLAUDE.md` + `<项目>/.claude/settings.local.json`
+
+### Plugins
+
+- 已安装插件：`~/.claude/plugins/installed_plugins.json`
+- 启用状态：`~/.claude/settings.json` enabledPlugins
+- 封锁列表：`~/.claude/plugins/blocklist.json`
+- 插件元数据：`<安装路径>/.claude-plugin/plugin.json`
 
 ---
 
 ## 页面操作指南
 
-### 列表视图
+### 导航栏
 
-1. **筛选来源**：点击顶部 "全部" / "Claude" / "Codex" 按钮
+顶部导航栏有五个标签：**对话**、**Skills**、**MCP**、**Rules**、**Plugins**。点击切换不同视图。
+
+### 对话视图
+
+1. **筛选来源**：点击 "全部" / "Claude" / "Codex" 按钮
 2. **切换分组**：点击 "项目" / "时间" / "模型" 按钮
 3. **折叠分组**：点击分组标题栏
-4. **搜索**：在右侧搜索框输入关键词，自动搜索标题和消息内容
+4. **搜索**：在搜索框输入关键词
 5. **进入对话**：点击任意对话行
+6. **返回列表**：点击 "返回" 按钮或按 `Escape`
 
-### 详情视图
+### 配置视图（Skills / MCP / Rules / Plugins）
 
-1. **返回列表**：点击左上角 "返回" 按钮或按 `Escape`
-2. **查看工具调用**：点击消息下方的绿色工具名称，展开查看输入参数和返回结果
-3. **查看思考过程**：点击紫色 "思考" 标记展开
-4. **查看子代理**：点击 "子代理" 按钮（仅 Claude 对话可用）
-5. **导出对话**：点击 "导出" 按钮，以 Markdown 格式在新窗口打开
-6. **删除对话**：点击 "删除" 按钮，确认后移至回收站
+1. 所有配置视图按 **用户级** / **项目级** 分组
+2. 点击分组标题栏可折叠/展开
+3. Skills 和 Plugins 有二级分组（按插件名/市场来源）
+4. 点击 Skill 或 Rule 可查看详情内容
+5. 搜索框在所有标签页下可用
 
 ---
 
 ## API 接口
+
+### 对话
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -138,20 +155,39 @@ taskkill //F //PID <进程ID>
 | `GET` | `/api/sessions/{source}/{id}` | 获取对话消息 |
 | `GET` | `/api/sessions/{source}/{id}/subagents` | 获取子代理列表 |
 | `GET` | `/api/sessions/{source}/{id}/export?format=markdown\|json` | 导出对话 |
-| `POST` | `/api/sessions/delete-batch` | 批量删除（body: `{"sessions": [{"source": "claude", "id": "..."}]}`) |
+| `POST` | `/api/sessions/delete-batch` | 批量删除 |
 | `DELETE` | `/api/sessions/{source}/{id}` | 删除单个对话 |
 
-`source` 参数值为 `claude` 或 `codex`。
+### 配置管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/config/stats` | 配置统计 |
+| `GET` | `/api/skills?q=` | 技能列表 |
+| `GET` | `/api/skills/{id:path}/body` | 技能全文 |
+| `GET` | `/api/mcp?q=` | MCP 服务器列表 |
+| `GET` | `/api/rules?scope=&q=` | 规则列表 |
+| `GET` | `/api/rules/{id:path}/content` | 规则全文 |
+| `GET` | `/api/plugins?q=` | 插件列表 |
 
 ---
 
 ## 技术架构
 
 ```
+对话数据:
 ~/.claude/projects/<path>/<uuid>.jsonl   → ClaudeParser
 ~/.codex/state_5.sqlite + rollout JSONL  → CodexParser
                                               ↓
-                                       SessionService (合并两者)
+                                       SessionService
+                                              ↓
+配置数据:
+~/.claude/plugins/cache/.../SKILL.md     → SkillsParser
+~/.claude/plugins/marketplaces/.../.mcp.json → McpParser
+~/.CLAUDE.md + 项目/CLAUDE.md            → RulesParser
+~/.claude/plugins/installed_plugins.json  → PluginsParser
+                                              ↓
+                                       ConfigService
                                               ↓
                                          FastAPI (/api/*)
                                               ↓

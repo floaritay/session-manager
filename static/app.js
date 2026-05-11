@@ -11,6 +11,14 @@ const state = {
     viewMode: "list",       // "list" | "detail"
     groupBy: "project",     // "project" | "time" | "model"
     collapsedGroups: new Set(),
+
+    // Config management
+    activeSection: "sessions",  // "sessions" | "skills" | "mcp" | "rules" | "plugins"
+    skills: [],
+    mcpServers: [],
+    rules: [],
+    plugins: [],
+    configStats: null,
 };
 
 // ── API ──
@@ -43,6 +51,55 @@ async function fetchSubagents(source, id) {
     return resp.json();
 }
 
+// ── Config API ──
+async function fetchSkills(q) {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    const resp = await fetch(`/api/skills${qs ? "?" + qs : ""}`);
+    return resp.json();
+}
+
+async function fetchSkillBody(skillId) {
+    const resp = await fetch(`/api/skills/${encodeURIComponent(skillId)}/body`);
+    return resp.text();
+}
+
+async function fetchMcpServers(q) {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    const resp = await fetch(`/api/mcp${qs ? "?" + qs : ""}`);
+    return resp.json();
+}
+
+async function fetchRules(scope, q) {
+    const params = new URLSearchParams();
+    if (scope) params.set("scope", scope);
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    const resp = await fetch(`/api/rules${qs ? "?" + qs : ""}`);
+    return resp.json();
+}
+
+async function fetchRuleContent(ruleId) {
+    const resp = await fetch(`/api/rules/${encodeURIComponent(ruleId)}/content`);
+    return resp.text();
+}
+
+async function fetchPlugins(q) {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    const resp = await fetch(`/api/plugins${qs ? "?" + qs : ""}`);
+    return resp.json();
+}
+
+async function fetchConfigStats() {
+    const resp = await fetch("/api/config/stats");
+    return resp.json();
+}
+
 // ── Stats ──
 function renderStats(stats) {
     if (!stats) return;
@@ -58,6 +115,489 @@ function renderStats(stats) {
         ).join("");
     } else {
         toolsEl.textContent = "--";
+    }
+}
+
+function renderConfigStats(stats) {
+    if (!stats) return;
+    document.getElementById("stat-sessions").textContent = stats.total_skills;
+    document.getElementById("stat-messages").textContent = stats.total_servers;
+    document.getElementById("stat-tokens").textContent = stats.total_rules;
+    document.getElementById("stat-tools").innerHTML = `<span>${stats.enabled_plugins} / ${stats.total_plugins} 插件已启用</span>`;
+}
+
+// ── Skills List View ──
+function renderSkillsListView() {
+    state.viewMode = "list";
+    const content = document.getElementById("content");
+    const skills = state.skills;
+
+    if (skills.length === 0) {
+        content.innerHTML = `<div class="empty-state"><div class="empty-title">没有找到 Skills</div></div>`;
+        return;
+    }
+
+    // group by scope first, then by plugin_name
+    const scopeGroups = {};
+    for (const s of skills) {
+        const scopeKey = s.scope === "user" ? "用户级" : "项目级";
+        if (!scopeGroups[scopeKey]) scopeGroups[scopeKey] = [];
+        scopeGroups[scopeKey].push(s);
+    }
+
+    let html = `<div class="list-view">`;
+    for (const scopeName of ["用户级", "项目级"]) {
+        const scopeItems = scopeGroups[scopeName];
+        if (!scopeItems) continue;
+
+        const scopeCollapsed = state.collapsedGroups.has(scopeName);
+        html += `
+            <div class="group" data-group="${escapeAttr(scopeName)}">
+                <div class="group-header ${scopeCollapsed ? "collapsed" : ""}">
+                    <span class="group-arrow">${scopeCollapsed ? "▸" : "▾"}</span>
+                    <span class="group-name">${escapeHtml(scopeName)}</span>
+                    <span class="group-count">${scopeItems.length}</span>
+                </div>
+                <div class="group-items" ${scopeCollapsed ? 'style="display:none"' : ""}>`;
+
+        // sub-group by plugin_name
+        const pluginGroups = {};
+        for (const s of scopeItems) {
+            const key = s.plugin_name;
+            if (!pluginGroups[key]) pluginGroups[key] = [];
+            pluginGroups[key].push(s);
+        }
+
+        for (const pluginName of Object.keys(pluginGroups).sort()) {
+            const items = pluginGroups[pluginName];
+            const collapsed = state.collapsedGroups.has(`${scopeName}/${pluginName}`);
+            html += `
+                <div class="group" data-group="${escapeAttr(scopeName + "/" + pluginName)}">
+                    <div class="group-header ${collapsed ? "collapsed" : ""}">
+                        <span class="group-arrow">${collapsed ? "▸" : "▾"}</span>
+                        <span class="group-name">${escapeHtml(pluginName)}</span>
+                        <span class="group-count">${items.length}</span>
+                    </div>
+                    <div class="group-items" ${collapsed ? 'style="display:none"' : ""}>`;
+
+            for (const s of items) {
+                html += `
+                    <div class="session-row" data-id="${escapeAttr(s.id)}" data-type="skill">
+                        <div class="row-title">${escapeHtml(s.name)}</div>
+                        <div class="row-meta">
+                            <span class="source-tag skill">${escapeHtml(s.marketplace)}</span>
+                            <span class="row-date">${escapeHtml(s.description.slice(0, 60))}${s.description.length > 60 ? "..." : ""}</span>
+                        </div>
+                    </div>`;
+            }
+            html += `</div></div>`;
+        }
+        html += `</div></div>`;
+    }
+    html += `</div>`;
+    content.innerHTML = html;
+
+    // bind group headers
+    content.querySelectorAll(".group-header").forEach((el) => {
+        el.addEventListener("click", () => {
+            const group = el.closest(".group").dataset.group;
+            if (state.collapsedGroups.has(group)) state.collapsedGroups.delete(group);
+            else state.collapsedGroups.add(group);
+            renderSkillsListView();
+        });
+    });
+
+    // bind rows
+    content.querySelectorAll(".session-row").forEach((el) => {
+        el.addEventListener("click", () => loadSkillDetail(el.dataset.id));
+    });
+}
+
+// ── Skill Detail ──
+async function loadSkillDetail(skillId) {
+    state.viewMode = "detail";
+    const content = document.getElementById("content");
+    content.innerHTML = '<div class="loading-state">加载中</div>';
+
+    try {
+        const body = await fetchSkillBody(skillId);
+        const skill = state.skills.find(s => s.id === skillId);
+
+        let html = `<div class="detail-view">`;
+        html += `<div class="detail-header">`;
+        html += `<div class="detail-top">`;
+        html += `<button class="back-btn">返回</button>`;
+        html += `<div class="detail-title">${escapeHtml(skill?.name || skillId)}</div>`;
+        html += `</div>`;
+        html += `<div class="detail-meta">`;
+        html += `<span class="source-tag skill">${escapeHtml(skill?.marketplace || "")}</span>`;
+        html += `<span>${escapeHtml(skill?.plugin_name || "")}</span>`;
+        if (skill?.license) html += `<span>License: ${escapeHtml(skill.license)}</span>`;
+        html += `</div></div>`;
+        html += `<div class="detail-content">${renderMarkdown(body)}</div>`;
+        html += `</div>`;
+        content.innerHTML = html;
+
+        content.querySelector(".back-btn")?.addEventListener("click", () => {
+            state.viewMode = "list";
+            renderSkillsListView();
+        });
+    } catch (err) {
+        content.innerHTML = `<div class="empty-state"><div class="empty-title">${escapeHtml(err.message)}</div></div>`;
+    }
+}
+
+// ── MCP List View ──
+function renderMcpListView() {
+    state.viewMode = "list";
+    const content = document.getElementById("content");
+    const servers = state.mcpServers;
+
+    if (servers.length === 0) {
+        content.innerHTML = `<div class="empty-state"><div class="empty-title">没有找到 MCP 服务器</div></div>`;
+        return;
+    }
+
+    // group by scope first, then by transport_type
+    const scopeGroups = {};
+    for (const s of servers) {
+        const scopeKey = s.scope === "user" ? "用户级" : `项目级 — ${s.project_path || s.marketplace}`;
+        if (!scopeGroups[scopeKey]) scopeGroups[scopeKey] = [];
+        scopeGroups[scopeKey].push(s);
+    }
+
+    let html = `<div class="list-view">`;
+    for (const scopeName of Object.keys(scopeGroups).sort((a, b) => {
+        if (a.startsWith("用户级")) return -1;
+        if (b.startsWith("用户级")) return 1;
+        return a.localeCompare(b);
+    })) {
+        const scopeItems = scopeGroups[scopeName];
+        const scopeCollapsed = state.collapsedGroups.has(scopeName);
+        html += `
+            <div class="group" data-group="${escapeAttr(scopeName)}">
+                <div class="group-header ${scopeCollapsed ? "collapsed" : ""}">
+                    <span class="group-arrow">${scopeCollapsed ? "▸" : "▾"}</span>
+                    <span class="group-name">${escapeHtml(scopeName)}</span>
+                    <span class="group-count">${scopeItems.length}</span>
+                </div>
+                <div class="group-items" ${scopeCollapsed ? 'style="display:none"' : ""}>`;
+
+        for (const s of scopeItems) {
+            const detail = s.transport_type === "stdio" ? `${s.command} ${s.args.join(" ")}` : s.url;
+            html += `
+                <div class="session-row">
+                    <div class="row-title">${escapeHtml(s.name)}</div>
+                    <div class="row-meta">
+                        <span class="source-tag ${s.transport_type}">${s.transport_type}</span>
+                        <span class="row-date">${escapeHtml(detail.slice(0, 80))}${detail.length > 80 ? "..." : ""}</span>
+                    </div>
+                </div>`;
+        }
+        html += `</div></div>`;
+    }
+    html += `</div>`;
+    content.innerHTML = html;
+
+    // bind group headers
+    content.querySelectorAll(".group-header").forEach((el) => {
+        el.addEventListener("click", () => {
+            const group = el.closest(".group").dataset.group;
+            if (state.collapsedGroups.has(group)) state.collapsedGroups.delete(group);
+            else state.collapsedGroups.add(group);
+            renderMcpListView();
+        });
+    });
+}
+
+// ── Rules List View ──
+function renderRulesListView() {
+    state.viewMode = "list";
+    const content = document.getElementById("content");
+    const rules = state.rules;
+
+    if (rules.length === 0) {
+        content.innerHTML = `<div class="empty-state"><div class="empty-title">没有找到 Rules</div></div>`;
+        return;
+    }
+
+    const groups = {};
+    for (const r of rules) {
+        const key = r.scope === "user" ? "用户级" : `项目级 — ${r.project_path || ""}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(r);
+    }
+
+    let html = `<div class="list-view">`;
+    for (const groupName of Object.keys(groups).sort((a, b) => {
+        if (a.startsWith("用户级")) return -1;
+        if (b.startsWith("用户级")) return 1;
+        return a.localeCompare(b);
+    })) {
+        const items = groups[groupName];
+        const collapsed = state.collapsedGroups.has(groupName);
+        html += `
+            <div class="group" data-group="${escapeAttr(groupName)}">
+                <div class="group-header ${collapsed ? "collapsed" : ""}">
+                    <span class="group-arrow">${collapsed ? "▸" : "▾"}</span>
+                    <span class="group-name">${escapeHtml(groupName)}</span>
+                    <span class="group-count">${items.length}</span>
+                </div>
+                <div class="group-items" ${collapsed ? 'style="display:none"' : ""}>`;
+
+        for (const r of items) {
+            html += `
+                <div class="session-row" data-id="${escapeAttr(r.id)}" data-type="rule">
+                    <div class="row-title">${escapeHtml(r.name)}</div>
+                    <div class="row-meta">
+                        <span class="source-tag ${r.scope}">${r.scope === "user" ? "用户" : "项目"}</span>
+                        <span class="row-date">${r.content_length.toLocaleString()} 字符</span>
+                    </div>
+                </div>`;
+        }
+        html += `</div></div>`;
+    }
+    html += `</div>`;
+    content.innerHTML = html;
+
+    // bind group headers
+    content.querySelectorAll(".group-header").forEach((el) => {
+        el.addEventListener("click", () => {
+            const group = el.closest(".group").dataset.group;
+            if (state.collapsedGroups.has(group)) state.collapsedGroups.delete(group);
+            else state.collapsedGroups.add(group);
+            renderRulesListView();
+        });
+    });
+
+    // bind rows
+    content.querySelectorAll(".session-row").forEach((el) => {
+        el.addEventListener("click", () => loadRuleDetail(el.dataset.id));
+    });
+}
+
+// ── Rule Detail ──
+async function loadRuleDetail(ruleId) {
+    state.viewMode = "detail";
+    const content = document.getElementById("content");
+    content.innerHTML = '<div class="loading-state">加载中</div>';
+
+    try {
+        const body = await fetchRuleContent(ruleId);
+        const rule = state.rules.find(r => r.id === ruleId);
+
+        let html = `<div class="detail-view">`;
+        html += `<div class="detail-header">`;
+        html += `<div class="detail-top">`;
+        html += `<button class="back-btn">返回</button>`;
+        html += `<div class="detail-title">${escapeHtml(rule?.name || ruleId)}</div>`;
+        html += `</div>`;
+        html += `<div class="detail-meta">`;
+        html += `<span class="source-tag ${rule?.scope || ""}">${rule?.scope || ""}</span>`;
+        html += `<span>${body.length.toLocaleString()} 字符</span>`;
+        html += `</div></div>`;
+        html += `<div class="detail-content">${escapeHtml(body)}</div>`;
+        html += `</div>`;
+        content.innerHTML = html;
+
+        content.querySelector(".back-btn")?.addEventListener("click", () => {
+            state.viewMode = "list";
+            renderRulesListView();
+        });
+    } catch (err) {
+        content.innerHTML = `<div class="empty-state"><div class="empty-title">${escapeHtml(err.message)}</div></div>`;
+    }
+}
+
+// ── Plugins List View ──
+function renderPluginsListView() {
+    state.viewMode = "list";
+    const content = document.getElementById("content");
+    const plugins = state.plugins;
+
+    if (plugins.length === 0) {
+        content.innerHTML = `<div class="empty-state"><div class="empty-title">没有找到 Plugins</div></div>`;
+        return;
+    }
+
+    // group by scope first, then by marketplace
+    const scopeGroups = {};
+    for (const p of plugins) {
+        const scopeKey = p.scope === "user" ? "用户级" : "项目级";
+        if (!scopeGroups[scopeKey]) scopeGroups[scopeKey] = [];
+        scopeGroups[scopeKey].push(p);
+    }
+
+    let html = `<div class="list-view">`;
+    for (const scopeName of ["用户级", "项目级"]) {
+        const scopeItems = scopeGroups[scopeName];
+        if (!scopeItems) continue;
+
+        const scopeCollapsed = state.collapsedGroups.has(scopeName);
+        html += `
+            <div class="group" data-group="${escapeAttr(scopeName)}">
+                <div class="group-header ${scopeCollapsed ? "collapsed" : ""}">
+                    <span class="group-arrow">${scopeCollapsed ? "▸" : "▾"}</span>
+                    <span class="group-name">${escapeHtml(scopeName)}</span>
+                    <span class="group-count">${scopeItems.length}</span>
+                </div>
+                <div class="group-items" ${scopeCollapsed ? 'style="display:none"' : ""}>`;
+
+        // sub-group by marketplace
+        const marketplaceGroups = {};
+        for (const p of scopeItems) {
+            const key = p.marketplace;
+            if (!marketplaceGroups[key]) marketplaceGroups[key] = [];
+            marketplaceGroups[key].push(p);
+        }
+
+        for (const mktName of Object.keys(marketplaceGroups).sort()) {
+            const items = marketplaceGroups[mktName];
+            const collapsed = state.collapsedGroups.has(`${scopeName}/${mktName}`);
+            html += `
+                <div class="group" data-group="${escapeAttr(scopeName + "/" + mktName)}">
+                    <div class="group-header ${collapsed ? "collapsed" : ""}">
+                        <span class="group-arrow">${collapsed ? "▸" : "▾"}</span>
+                        <span class="group-name">${escapeHtml(mktName)}</span>
+                        <span class="group-count">${items.length}</span>
+                    </div>
+                    <div class="group-items" ${collapsed ? 'style="display:none"' : ""}>`;
+
+            for (const p of items) {
+                const statusTag = p.blocked
+                    ? `<span class="source-tag blocked">blocked</span>`
+                    : p.enabled
+                        ? `<span class="source-tag enabled">enabled</span>`
+                        : `<span class="source-tag">disabled</span>`;
+                html += `
+                    <div class="session-row">
+                        <div class="row-title">${escapeHtml(p.name)}</div>
+                        <div class="row-meta">
+                            ${statusTag}
+                            ${p.skill_count > 0 ? `<span class="row-tokens">${p.skill_count} skills</span>` : ""}
+                            <span class="row-date">${escapeHtml(p.description.slice(0, 50))}${p.description.length > 50 ? "..." : ""}</span>
+                        </div>
+                    </div>`;
+            }
+            html += `</div></div>`;
+        }
+        html += `</div></div>`;
+    }
+    html += `</div>`;
+    content.innerHTML = html;
+
+    // bind group headers
+    content.querySelectorAll(".group-header").forEach((el) => {
+        el.addEventListener("click", () => {
+            const group = el.closest(".group").dataset.group;
+            if (state.collapsedGroups.has(group)) state.collapsedGroups.delete(group);
+            else state.collapsedGroups.add(group);
+            renderPluginsListView();
+        });
+    });
+}
+
+// ── Simple Markdown Renderer ──
+function renderMarkdown(text) {
+    if (!text) return "";
+    let html = escapeHtml(text);
+
+    // headings
+    html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
+    html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+    html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+
+    // bold
+    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+    // italic
+    html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+    // inline code
+    html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+    // code blocks
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>");
+
+    // links
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+    // unordered lists
+    html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>");
+
+    // ordered lists
+    html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
+
+    // blockquotes
+    html = html.replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>");
+
+    // horizontal rule
+    html = html.replace(/^---$/gm, "<hr>");
+
+    // paragraphs (double newline)
+    html = html.replace(/\n\n/g, "</p><p>");
+    html = "<p>" + html + "</p>";
+
+    // clean up empty paragraphs
+    html = html.replace(/<p>\s*<\/p>/g, "");
+    html = html.replace(/<p>\s*(<h[1-3]>)/g, "$1");
+    html = html.replace(/(<\/h[1-3]>)\s*<\/p>/g, "$1");
+    html = html.replace(/<p>\s*(<pre>)/g, "$1");
+    html = html.replace(/(<\/pre>)\s*<\/p>/g, "$1");
+    html = html.replace(/<p>\s*(<ul>)/g, "$1");
+    html = html.replace(/(<\/ul>)\s*<\/p>/g, "$1");
+    html = html.replace(/<p>\s*(<blockquote>)/g, "$1");
+    html = html.replace(/(<\/blockquote>)\s*<\/p>/g, "$1");
+    html = html.replace(/<p>\s*(<hr>)/g, "$1");
+    html = html.replace(/(<hr>)\s*<\/p>/g, "$1");
+
+    return html;
+}
+
+// ── Section Switching ──
+async function switchSection() {
+    const section = state.activeSection;
+    const sessionControls = document.querySelector(".session-controls");
+    const statsBar = document.getElementById("stats-bar");
+
+    // hide/show session-specific controls
+    if (section === "sessions") {
+        sessionControls.classList.remove("hidden");
+        statsBar.querySelectorAll(".stat-label")[0].textContent = "对话";
+        statsBar.querySelectorAll(".stat-label")[1].textContent = "消息";
+        statsBar.querySelectorAll(".stat-label")[2].textContent = "TOKENS";
+        statsBar.querySelectorAll(".stat-label")[3].textContent = "常用工具";
+    } else {
+        sessionControls.classList.add("hidden");
+        statsBar.querySelectorAll(".stat-label")[0].textContent = "Skills";
+        statsBar.querySelectorAll(".stat-label")[1].textContent = "MCP";
+        statsBar.querySelectorAll(".stat-label")[2].textContent = "Rules";
+        statsBar.querySelectorAll(".stat-label")[3].textContent = "Plugins";
+    }
+
+    state.viewMode = "list";
+    state.collapsedGroups.clear();
+
+    if (section === "sessions") {
+        await refreshSessions();
+        loadStats();
+    } else if (section === "skills") {
+        state.skills = await fetchSkills(state.searchQuery || undefined);
+        renderSkillsListView();
+        try { renderConfigStats(await fetchConfigStats()); } catch {}
+    } else if (section === "mcp") {
+        state.mcpServers = await fetchMcpServers(state.searchQuery || undefined);
+        renderMcpListView();
+        try { renderConfigStats(await fetchConfigStats()); } catch {}
+    } else if (section === "rules") {
+        state.rules = await fetchRules(null, state.searchQuery || undefined);
+        renderRulesListView();
+        try { renderConfigStats(await fetchConfigStats()); } catch {}
+    } else if (section === "plugins") {
+        state.plugins = await fetchPlugins(state.searchQuery || undefined);
+        renderPluginsListView();
+        try { renderConfigStats(await fetchConfigStats()); } catch {}
     }
 }
 
@@ -465,11 +1005,29 @@ document.querySelectorAll(".group-btn").forEach((btn) => {
     });
 });
 
+// Navigation
+document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+        document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.activeSection = btn.dataset.section;
+        state.searchQuery = "";
+        document.getElementById("search").value = "";
+        await switchSection();
+    });
+});
+
 // Search
 document.getElementById("search").addEventListener("input", (e) => {
     state.searchQuery = e.target.value;
     clearTimeout(state.searchTimer);
-    state.searchTimer = setTimeout(() => refreshSessions(), 300);
+    state.searchTimer = setTimeout(() => {
+        if (state.activeSection === "sessions") {
+            refreshSessions();
+        } else {
+            switchSection();
+        }
+    }, 300);
 });
 
 // Keyboard
@@ -486,10 +1044,19 @@ document.addEventListener("keydown", (e) => {
         if (document.activeElement === search) {
             search.value = "";
             state.searchQuery = "";
-            refreshSessions();
+            if (state.activeSection === "sessions") {
+                refreshSessions();
+            } else {
+                switchSection();
+            }
             search.blur();
         } else if (state.viewMode === "detail") {
-            closeConversation();
+            if (state.activeSection === "sessions") {
+                closeConversation();
+            } else {
+                state.viewMode = "list";
+                switchSection();
+            }
         }
         return;
     }
