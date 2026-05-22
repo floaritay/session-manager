@@ -4,6 +4,8 @@
 
 ## 功能特性
 
+![alt text](images/Session-Manager.png)
+
 ### 对话管理
 
 - 统一查看 Claude Code 和 OpenAI Codex 的所有对话记录
