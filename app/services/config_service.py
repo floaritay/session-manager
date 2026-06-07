@@ -27,15 +27,16 @@ class ConfigService:
         self._cache_ts[key] = now
         return result
 
+    def invalidate_cache(self):
+        self._cache.clear()
+        self._cache_ts.clear()
+
     def list_skills(self, q: str | None = None) -> list[SkillSummary]:
         skills = self._get_cached("skills", self.skills_parser.list_skills)
         if q:
             q_lower = q.lower()
             skills = [s for s in skills if q_lower in s.name.lower() or q_lower in s.description.lower()]
         return skills
-
-    def get_skill(self, skill_id: str) -> SkillSummary | None:
-        return self.skills_parser.get_skill(skill_id)
 
     def get_skill_body(self, skill_id: str) -> str:
         return self.skills_parser.get_skill_body(skill_id)

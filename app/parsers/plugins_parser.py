@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from app.models import PluginSummary
+
+logger = logging.getLogger(__name__)
 
 
 class PluginsParser:
@@ -21,7 +24,8 @@ class PluginsParser:
 
         try:
             installed = json.loads(installed_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug("Failed to read installed_plugins.json: %s", e)
             return []
 
         # Read enabled plugins from settings
@@ -59,8 +63,8 @@ class PluginsParser:
                             author = author_obj.get("name", "")
                         elif isinstance(author_obj, str):
                             author = author_obj
-                    except Exception:
-                        pass
+                    except (OSError, json.JSONDecodeError) as e:
+                        logger.debug("Failed to read plugin.json at %s: %s", plugin_json, e)
 
             # Count skills
             skill_count = 0
@@ -93,7 +97,8 @@ class PluginsParser:
         try:
             settings = json.loads(self.settings_path.read_text(encoding="utf-8"))
             return settings.get("enabledPlugins", {})
-        except Exception:
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug("Failed to read settings.json enabledPlugins: %s", e)
             return {}
 
     def _read_blocklist(self) -> dict[str, dict]:
@@ -106,5 +111,6 @@ class PluginsParser:
             for item in data.get("plugins", []):
                 result[item.get("plugin", "")] = item
             return result
-        except Exception:
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug("Failed to read blocklist.json: %s", e)
             return {}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter
 from datetime import datetime
 
@@ -13,24 +14,45 @@ class SessionService:
     def __init__(self):
         self.claude = ClaudeParser()
         self.codex = CodexParser()
-        self._stats_cache: dict | None = None
-        self._stats_ts: float = 0
+        self._cache: dict = {}
+        self._cache_ts: dict[str, float] = {}
+
+    def _get_cached(self, key: str, loader, ttl: int = 60):
+        now = time.time()
+        if key in self._cache and (now - self._cache_ts.get(key, 0)) < ttl:
+            return self._cache[key]
+        result = loader()
+        self._cache[key] = result
+        self._cache_ts[key] = now
+        return result
+
+    def _invalidate(self, *keys: str):
+        for key in keys:
+            self._cache.pop(key, None)
+            self._cache_ts.pop(key, None)
 
     def list_sessions(self, source: str | None = None) -> list[SessionSummary]:
-        sessions: list[SessionSummary] = []
-        if source is None or source == "claude":
+        def _load():
+            sessions: list[SessionSummary] = []
             sessions.extend(self.claude.list_sessions())
-        if source is None or source == "codex":
             sessions.extend(self.codex.list_sessions())
-        sessions.sort(key=lambda s: s.updated_at, reverse=True)
-        return sessions
+            sessions.sort(key=lambda s: s.updated_at, reverse=True)
+            return sessions
+
+        all_sessions = self._get_cached("sessions", _load)
+        if source:
+            return [s for s in all_sessions if s.source == source]
+        return list(all_sessions)
 
     def get_messages(self, session_id: str, source: str) -> list[Message]:
-        if source == "claude":
-            return self.claude.get_messages(session_id)
-        elif source == "codex":
-            return self.codex.get_messages(session_id)
-        return []
+        cache_key = f"messages:{source}:{session_id}"
+        def _load():
+            if source == "claude":
+                return self.claude.get_messages(session_id)
+            elif source == "codex":
+                return self.codex.get_messages(session_id)
+            return []
+        return self._get_cached(cache_key, _load, ttl=120)
 
     def delete_session(self, session_id: str, source: str) -> bool:
         ok = False
@@ -39,58 +61,51 @@ class SessionService:
         elif source == "codex":
             ok = self.codex.delete_session(session_id)
         if ok:
-            self._stats_cache = None  # invalidate cache
+            self._invalidate("sessions", "stats", f"messages:{source}:{session_id}")
         return ok
 
     def get_stats(self) -> dict:
-        import time
-        now = time.time()
-        if self._stats_cache and (now - self._stats_ts) < 60:
-            return self._stats_cache
-        sessions = self.list_sessions()
-        total_sessions = len(sessions)
-        total_input = sum(s.total_input_tokens for s in sessions)
-        total_output = sum(s.total_output_tokens for s in sessions)
+        def _load():
+            sessions = self.list_sessions()
+            total_sessions = len(sessions)
+            total_input = sum(s.total_input_tokens for s in sessions)
+            total_output = sum(s.total_output_tokens for s in sessions)
+            total_messages = sum(s.message_count for s in sessions)
 
-        by_source: dict[str, int] = {}
-        for s in sessions:
-            by_source[s.source] = by_source.get(s.source, 0) + 1
+            by_source: dict[str, int] = {}
+            for s in sessions:
+                by_source[s.source] = by_source.get(s.source, 0) + 1
 
-        by_date: dict[str, int] = {}
-        for s in sessions:
-            d = s.created_at.strftime("%Y-%m-%d")
-            by_date[d] = by_date.get(d, 0) + 1
+            by_date: dict[str, int] = {}
+            for s in sessions:
+                d = s.created_at.strftime("%Y-%m-%d")
+                by_date[d] = by_date.get(d, 0) + 1
 
-        # Count tools across all sessions
-        tool_counter: Counter[str] = Counter()
-        total_messages = 0
-        for s in sessions:
-            msgs = self.get_messages(s.id, s.source)
-            total_messages += len(msgs)
-            for m in msgs:
-                for tc in m.tool_calls:
-                    tool_counter[tc.name] += 1
+            # Aggregate tool counts from pre-computed SessionSummary data
+            tool_counter: Counter[str] = Counter()
+            for s in sessions:
+                for name, count in s.tool_call_counts.items():
+                    tool_counter[name] += count
 
-        top_tools = [
-            {"name": name, "count": count}
-            for name, count in tool_counter.most_common(10)
-        ]
+            top_tools = [
+                {"name": name, "count": count}
+                for name, count in tool_counter.most_common(10)
+            ]
 
-        result = {
-            "total_sessions": total_sessions,
-            "total_messages": total_messages,
-            "total_input_tokens": total_input,
-            "total_output_tokens": total_output,
-            "sessions_by_source": by_source,
-            "top_tools": top_tools,
-            "sessions_by_date": [
-                {"date": d, "count": c}
-                for d, c in sorted(by_date.items())
-            ],
-        }
-        self._stats_cache = result
-        self._stats_ts = time.time()
-        return result
+            return {
+                "total_sessions": total_sessions,
+                "total_messages": total_messages,
+                "total_input_tokens": total_input,
+                "total_output_tokens": total_output,
+                "sessions_by_source": by_source,
+                "top_tools": top_tools,
+                "sessions_by_date": [
+                    {"date": d, "count": c}
+                    for d, c in sorted(by_date.items())
+                ],
+            }
+
+        return self._get_cached("stats", _load)
 
     def search_sessions(self, q: str, source: str | None = None) -> list[SessionSummary]:
         q_lower = q.lower()
@@ -98,12 +113,12 @@ class SessionService:
         matched: list[SessionSummary] = []
 
         for s in sessions:
-            # Check title
+            # Check title first (no file I/O needed)
             if q_lower in s.title.lower():
                 matched.append(s)
                 continue
 
-            # Check message content
+            # Check message content (uses cached messages if available)
             msgs = self.get_messages(s.id, s.source)
             for m in msgs:
                 if q_lower in m.content.lower():
@@ -158,6 +173,10 @@ class SessionService:
             lines.append("")
             lines.append(m.content)
             lines.append("")
+
+            if m.thinking:
+                lines.append(f"> **Thinking**: {m.thinking[:500]}{'...' if len(m.thinking) > 500 else ''}")
+                lines.append("")
 
             for tc in m.tool_calls:
                 lines.append(f"> Tool: `{tc.name}`")

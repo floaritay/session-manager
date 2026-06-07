@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,11 +9,14 @@ from pathlib import Path
 from app.models import Message, SessionSummary, TokenUsage, ToolCall
 from app.parsers.base import SessionParser
 
+logger = logging.getLogger(__name__)
+
 
 class ClaudeParser(SessionParser):
     def __init__(self, claude_dir: str | None = None):
         self.claude_dir = Path(claude_dir or Path.home() / ".claude")
         self.projects_dir = self.claude_dir / "projects"
+        self._session_index: dict[str, Path] = {}
 
     def _find_jsonl_files(self) -> list[Path]:
         files: list[Path] = []
@@ -52,6 +56,12 @@ class ClaudeParser(SessionParser):
         model = session_meta.get("model", "")
         git_branch = session_meta.get("git_branch", "")
 
+        # count tool calls from messages
+        tool_call_counts: dict[str, int] = {}
+        for m in messages:
+            for tc in m.tool_calls:
+                tool_call_counts[tc.name] = tool_call_counts.get(tc.name, 0) + 1
+
         return SessionSummary(
             id=session_id,
             source="claude",
@@ -67,6 +77,7 @@ class ClaudeParser(SessionParser):
             duration_ms=session_meta.get("duration_ms"),
             ai_title=ai_title,
             git_branch=git_branch,
+            tool_call_counts=tool_call_counts,
         )
 
     def _parse_messages_full(self, filepath: Path) -> tuple[list[Message], dict]:
@@ -216,8 +227,8 @@ class ClaudeParser(SessionParser):
                         timestamp=ts,
                     ))
 
-        except (OSError, UnicodeDecodeError):
-            pass
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning("Failed to parse session %s: %s", filepath, e)
 
         return messages, session_meta
 
@@ -245,10 +256,6 @@ class ClaudeParser(SessionParser):
                 return "", tool_results
             return "\n".join(texts), tool_results
         return str(content), []
-
-    def _extract_user_text(self, content) -> str:
-        text, _ = self._extract_user_blocks(content)
-        return text
 
     @staticmethod
     def _extract_command_text(text: str) -> str:
@@ -294,19 +301,6 @@ class ClaudeParser(SessionParser):
             return "\n".join(texts), "\n".join(thinking_parts), tool_calls
         return str(content), "", []
 
-    def _extract_assistant_content(self, content) -> tuple[str, dict]:
-        """Legacy wrapper for backward compatibility."""
-        text, thinking, tool_calls = self._extract_assistant_blocks(content)
-        meta = {}
-        if thinking:
-            meta["thinking"] = thinking
-        if tool_calls:
-            meta["tool_uses"] = [
-                {"name": tc.name, "input_summary": tc.input_summary}
-                for tc in tool_calls
-            ]
-        return text, meta
-
     @staticmethod
     def _summarize_tool_input(inp: dict) -> str:
         if not inp:
@@ -318,14 +312,20 @@ class ClaudeParser(SessionParser):
 
     def list_sessions(self) -> list[SessionSummary]:
         sessions = []
+        self._session_index.clear()
         for filepath in self._find_jsonl_files():
             s = self._parse_session_file(filepath)
             if s:
                 sessions.append(s)
+                self._session_index[s.id] = filepath
         sessions.sort(key=lambda s: s.updated_at, reverse=True)
         return sessions
 
     def get_messages(self, session_id: str) -> list[Message]:
+        # fast path: use index if available
+        if session_id in self._session_index:
+            return self._parse_messages(self._session_index[session_id])
+        # fallback: linear scan
         for filepath in self._find_jsonl_files():
             if filepath.stem == session_id:
                 return self._parse_messages(filepath)
@@ -367,6 +367,7 @@ class ClaudeParser(SessionParser):
                     if session_dir.is_dir():
                         send2trash(str(session_dir))
                     return True
-                except Exception:
+                except OSError as e:
+                    logger.warning("Failed to delete session %s: %s", session_id, e)
                     return False
         return False

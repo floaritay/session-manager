@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
+import logging
 from pathlib import Path
 
 from app.models import SkillSummary
+
+logger = logging.getLogger(__name__)
 
 
 class SkillsParser:
@@ -27,7 +29,8 @@ class SkillsParser:
                 if install_path:
                     paths.append(Path(install_path))
             return paths
-        except Exception:
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug("Failed to read installed_plugins.json: %s", e)
             return []
 
     def list_skills(self) -> list[SkillSummary]:
@@ -57,7 +60,8 @@ class SkillsParser:
                 skill = self._parse_skill_md(skill_md)
                 if skill:
                     skills.append(skill)
-            except Exception:
+            except (OSError, UnicodeDecodeError, ValueError) as e:
+                logger.debug("Failed to parse skill %s: %s", skill_md, e)
                 continue
 
         skills.sort(key=lambda s: (s.plugin_name, s.name))
@@ -77,7 +81,8 @@ class SkillsParser:
             content = Path(skill.file_path).read_text(encoding="utf-8")
             _, body = self._split_frontmatter(content)
             return body
-        except Exception:
+        except (OSError, UnicodeDecodeError) as e:
+            logger.debug("Failed to read skill body %s: %s", skill_id, e)
             return ""
 
     def _parse_skill_md(self, path: Path) -> SkillSummary | None:
@@ -128,9 +133,10 @@ class SkillsParser:
                 body = parts[2].strip()
                 for line in fm_text.splitlines():
                     if ":" in line:
-                        key, _, value = line.partition(":")
-                        key = key.strip()
-                        value = value.strip().strip('"').strip("'")
-                        frontmatter[key] = value
+                        idx = line.index(":")
+                        key = line[:idx].strip()
+                        value = line[idx + 1:].strip().strip('"').strip("'")
+                        if key:
+                            frontmatter[key] = value
 
         return frontmatter, body

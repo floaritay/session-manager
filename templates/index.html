@@ -7,6 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+            onerror="var s=document.createElement('script');s.src='https://unpkg.com/chart.js@4.4.7/dist/chart.umd.min.js';document.head.appendChild(s);"></script>
 </head>
 <body>
     <div id="app">
@@ -24,6 +26,7 @@
                     <button class="filter-btn active" data-source="all">全部</button>
                     <button class="filter-btn" data-source="claude">Claude</button>
                     <button class="filter-btn" data-source="codex">Codex</button>
+                    <button class="filter-btn" data-source="favorites">收藏</button>
                 </div>
                 <div class="group-by">
                     <span class="group-label">分组:</span>
@@ -36,27 +39,43 @@
                 <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
                 <input type="text" id="search" placeholder="搜索..." autocomplete="off" spellcheck="false" />
             </div>
+            <button class="theme-toggle" id="theme-toggle" title="切换主题">☀</button>
         </header>
-        <div class="stats-bar" id="stats-bar">
-            <div class="stat-card">
-                <div class="stat-value" id="stat-sessions">--</div>
-                <div class="stat-label">对话</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="stat-messages">--</div>
-                <div class="stat-label">消息</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="stat-tokens">--</div>
-                <div class="stat-label">TOKENS</div>
-            </div>
-            <div class="stat-card stat-tools">
-                <div class="stat-value" id="stat-tools">--</div>
-                <div class="stat-label">常用工具</div>
-            </div>
+        <div class="batch-bar" id="batch-bar">
+            <span class="batch-count" id="batch-count">已选 0 项</span>
+            <button class="batch-btn" id="batch-select-all">全选</button>
+            <button class="batch-btn danger" id="batch-delete">批量删除</button>
+            <button class="batch-btn" id="batch-export">批量导出</button>
+            <button class="batch-btn" id="export-all">导出全部</button>
+            <button class="batch-btn" id="batch-cancel">取消</button>
         </div>
-        <main id="content"></main>
+        <div class="scroll-area">
+            <div class="stats-bar" id="stats-bar">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-sessions">--</div>
+                    <div class="stat-label">对话</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-messages">--</div>
+                    <div class="stat-label">消息</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-tokens">--</div>
+                    <div class="stat-label">TOKENS</div>
+                </div>
+                <div class="stat-card stat-tools">
+                    <div class="stat-value" id="stat-tools">--</div>
+                    <div class="stat-label">常用工具</div>
+                </div>
+            </div>
+            <div class="charts-area" id="charts-area">
+                <div class="chart-box"><canvas id="chart-dates"></canvas></div>
+                <div class="chart-box"><canvas id="chart-models"></canvas></div>
+            </div>
+            <main id="content"></main>
+        </div>
     </div>
+    <div class="toast-container" id="toast-container"></div>
     <script src="/static/app.js"></script>
 </body>
 </html>

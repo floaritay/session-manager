@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import os
+import json
+import logging
 from pathlib import Path
 
 from app.models import RuleSummary
+from app.parsers.utils import decode_project_path
+
+logger = logging.getLogger(__name__)
 
 
 class RulesParser:
@@ -26,8 +30,8 @@ class RulesParser:
                     content_preview=content[:300].strip(),
                     content_length=len(content),
                 ))
-            except Exception:
-                pass
+            except (OSError, UnicodeDecodeError) as e:
+                logger.debug("Failed to read global CLAUDE.md: %s", e)
 
         # 2. Project-level rules
         projects_dir = self.claude_dir / "projects"
@@ -36,7 +40,7 @@ class RulesParser:
                 if not project_dir.is_dir():
                     continue
                 encoded_path = project_dir.name
-                project_path = self._decode_project_path(encoded_path)
+                project_path = decode_project_path(encoded_path)
 
                 # Check for CLAUDE.md in the project
                 claude_md = Path(project_path) / "CLAUDE.md"
@@ -52,8 +56,8 @@ class RulesParser:
                             content_length=len(content),
                             project_path=project_path,
                         ))
-                    except Exception:
-                        pass
+                    except (OSError, UnicodeDecodeError) as e:
+                        logger.debug("Failed to read project CLAUDE.md %s: %s", claude_md, e)
 
                 # Check for settings.local.json
                 settings_local = Path(project_path) / ".claude" / "settings.local.json"
@@ -69,8 +73,8 @@ class RulesParser:
                             content_length=len(content),
                             project_path=project_path,
                         ))
-                    except Exception:
-                        pass
+                    except (OSError, UnicodeDecodeError) as e:
+                        logger.debug("Failed to read settings.local.json %s: %s", settings_local, e)
 
         rules.sort(key=lambda r: (0 if r.scope == "user" else 1, r.name))
         return rules
@@ -81,17 +85,8 @@ class RulesParser:
             if rule.id == rule_id:
                 try:
                     return Path(rule.file_path).read_text(encoding="utf-8")
-                except Exception:
+                except (OSError, UnicodeDecodeError) as e:
+                    logger.debug("Failed to read rule %s: %s", rule_id, e)
                     return ""
         return ""
 
-    def _decode_project_path(self, encoded: str) -> str:
-        """Decode project directory name to actual path.
-        e.g. 'D--session-manager' -> 'D:\\session_manager'
-        """
-        if "--" in encoded:
-            parts = encoded.split("--", 1)
-            drive = parts[0]
-            rest = parts[1].replace("-", "_")
-            return f"{drive}:\\{rest}"
-        return encoded

@@ -5,7 +5,6 @@
 const state = {
     sessions: [],
     currentSource: null,
-    currentSession: null,
     searchQuery: "",
     searchTimer: null,
     viewMode: "list",       // "list" | "detail"
@@ -18,37 +17,99 @@ const state = {
     mcpServers: [],
     rules: [],
     plugins: [],
-    configStats: null,
+
+    // Pagination
+    page: 1,
+    perPage: 50,
+    totalPages: 1,
+    total: 0,
+
+    // Batch operations
+    batchMode: false,
+    selected: new Set(),
+
+    // Charts
+    dateChart: null,
+    modelChart: null,
+
+    // Favorites
+    favorites: new Set(),
+
+    // Notes
+    notes: {},
+
+    // Favorites filter
+    showFavoritesOnly: false,
 };
 
+// ── Toast Notifications ──
+function showToast(message, type = "info") {
+    const container = document.getElementById("toast-container");
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transition = "opacity 0.3s";
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// ── Unified API Call ──
+async function apiCall(url, options = {}) {
+    const resp = await fetch(url, options);
+    if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error(text || `HTTP ${resp.status}`);
+    }
+    return resp;
+}
+
+async function apiJson(url, options = {}) {
+    const resp = await apiCall(url, options);
+    return resp.json();
+}
+
+async function apiText(url, options = {}) {
+    const resp = await apiCall(url, options);
+    return resp.text();
+}
+
 // ── API ──
-async function fetchSessions(source, q) {
+async function fetchSessions(source, q, page, perPage, favorites) {
     const params = new URLSearchParams();
     if (source && source !== "all") params.set("source", source);
     if (q) params.set("q", q);
+    if (page) params.set("page", page);
+    if (perPage) params.set("per_page", perPage);
+    if (favorites) params.set("favorites", "true");
     const qs = params.toString();
-    const resp = await fetch(`/api/sessions${qs ? "?" + qs : ""}`);
-    return resp.json();
+    return apiJson(`/api/sessions${qs ? "?" + qs : ""}`);
 }
 
 async function fetchMessages(source, id) {
-    const resp = await fetch(`/api/sessions/${source}/${id}`);
-    return resp.json();
+    return apiJson(`/api/sessions/${source}/${id}`);
 }
 
 async function deleteSession(source, id) {
-    const resp = await fetch(`/api/sessions/${source}/${id}`, { method: "DELETE" });
-    return resp.json();
+    return apiJson(`/api/sessions/${source}/${id}`, { method: "DELETE" });
+}
+
+async function deleteSessionsBatch(sessions) {
+    return apiJson("/api/sessions/delete-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessions }),
+    });
 }
 
 async function fetchStats() {
-    const resp = await fetch("/api/stats");
-    return resp.json();
+    return apiJson("/api/stats");
 }
 
 async function fetchSubagents(source, id) {
-    const resp = await fetch(`/api/sessions/${source}/${id}/subagents`);
-    return resp.json();
+    return apiJson(`/api/sessions/${source}/${id}/subagents`);
 }
 
 // ── Config API ──
@@ -56,21 +117,18 @@ async function fetchSkills(q) {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     const qs = params.toString();
-    const resp = await fetch(`/api/skills${qs ? "?" + qs : ""}`);
-    return resp.json();
+    return apiJson(`/api/skills${qs ? "?" + qs : ""}`);
 }
 
 async function fetchSkillBody(skillId) {
-    const resp = await fetch(`/api/skills/${encodeURIComponent(skillId)}/body`);
-    return resp.text();
+    return apiText(`/api/skills/${encodeURIComponent(skillId)}/body`);
 }
 
 async function fetchMcpServers(q) {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     const qs = params.toString();
-    const resp = await fetch(`/api/mcp${qs ? "?" + qs : ""}`);
-    return resp.json();
+    return apiJson(`/api/mcp${qs ? "?" + qs : ""}`);
 }
 
 async function fetchRules(scope, q) {
@@ -78,26 +136,49 @@ async function fetchRules(scope, q) {
     if (scope) params.set("scope", scope);
     if (q) params.set("q", q);
     const qs = params.toString();
-    const resp = await fetch(`/api/rules${qs ? "?" + qs : ""}`);
-    return resp.json();
+    return apiJson(`/api/rules${qs ? "?" + qs : ""}`);
 }
 
 async function fetchRuleContent(ruleId) {
-    const resp = await fetch(`/api/rules/${encodeURIComponent(ruleId)}/content`);
-    return resp.text();
+    return apiText(`/api/rules/${encodeURIComponent(ruleId)}/content`);
 }
 
 async function fetchPlugins(q) {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     const qs = params.toString();
-    const resp = await fetch(`/api/plugins${qs ? "?" + qs : ""}`);
-    return resp.json();
+    return apiJson(`/api/plugins${qs ? "?" + qs : ""}`);
 }
 
 async function fetchConfigStats() {
-    const resp = await fetch("/api/config/stats");
-    return resp.json();
+    return apiJson("/api/config/stats");
+}
+
+// ── Favorites API ──
+async function fetchFavorites() {
+    return apiJson("/api/favorites");
+}
+
+// ── Notes API (bulk) ──
+async function fetchAllNotes() {
+    return apiJson("/api/notes");
+}
+
+async function toggleFavorite(source, id) {
+    return apiJson(`/api/favorites/${source}/${id}`, { method: "POST" });
+}
+
+// ── Notes API ──
+async function fetchNote(source, id) {
+    return apiJson(`/api/sessions/${source}/${id}/note`);
+}
+
+async function saveNote(source, id, note) {
+    return apiJson(`/api/sessions/${source}/${id}/note`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note }),
+    });
 }
 
 // ── Stats ──
@@ -116,6 +197,9 @@ function renderStats(stats) {
     } else {
         toolsEl.textContent = "--";
     }
+
+    // Update charts
+    renderCharts(stats);
 }
 
 function renderConfigStats(stats) {
@@ -124,6 +208,79 @@ function renderConfigStats(stats) {
     document.getElementById("stat-messages").textContent = stats.total_servers;
     document.getElementById("stat-tokens").textContent = stats.total_rules;
     document.getElementById("stat-tools").innerHTML = `<span>${stats.enabled_plugins} / ${stats.total_plugins} 插件已启用</span>`;
+}
+
+// ── Charts ──
+function renderCharts(stats) {
+    const chartsArea = document.getElementById("charts-area");
+    if (typeof Chart === "undefined") {
+        chartsArea.classList.remove("visible");
+        return;
+    }
+    if (!stats.sessions_by_date?.length && !stats.sessions_by_source) {
+        chartsArea.classList.remove("visible");
+        return;
+    }
+    chartsArea.classList.add("visible");
+
+    const isDark = document.body.getAttribute("data-theme") === "dark";
+    const gridColor = isDark ? "#333" : "#e5e5e5";
+    const textColor = isDark ? "#999" : "#999";
+
+    // Date chart
+    if (stats.sessions_by_date?.length) {
+        const dateCtx = document.getElementById("chart-dates");
+        if (state.dateChart) state.dateChart.destroy();
+        state.dateChart = new Chart(dateCtx, {
+            type: "line",
+            data: {
+                labels: stats.sessions_by_date.map(d => d.date),
+                datasets: [{
+                    label: "Sessions",
+                    data: stats.sessions_by_date.map(d => d.count),
+                    borderColor: isDark ? "#a78bfa" : "#7c3aed",
+                    backgroundColor: isDark ? "rgba(167,139,250,0.1)" : "rgba(124,58,237,0.1)",
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 2,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: gridColor }, ticks: { color: textColor, maxRotation: 45, font: { size: 10 } } },
+                    y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 10 } }, beginAtZero: true },
+                },
+            },
+        });
+    }
+
+    // Model distribution chart
+    if (stats.sessions_by_source) {
+        const modelCtx = document.getElementById("chart-models");
+        if (state.modelChart) state.modelChart.destroy();
+        const labels = Object.keys(stats.sessions_by_source);
+        const data = Object.values(stats.sessions_by_source);
+        const colors = isDark
+            ? ["#a78bfa", "#4ade80", "#fbbf24", "#f87171"]
+            : ["#7c3aed", "#16a34a", "#d97706", "#dc2626"];
+        state.modelChart = new Chart(modelCtx, {
+            type: "doughnut",
+            data: {
+                labels,
+                datasets: [{ data, backgroundColor: colors.slice(0, labels.length), borderWidth: 0 }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: "right", labels: { color: textColor, font: { size: 11 }, padding: 12 } },
+                },
+            },
+        });
+    }
 }
 
 // ── Skills List View ──
@@ -284,7 +441,7 @@ function renderMcpListView() {
                 <div class="group-items" ${scopeCollapsed ? 'style="display:none"' : ""}>`;
 
         for (const s of scopeItems) {
-            const detail = s.transport_type === "stdio" ? `${s.command} ${s.args.join(" ")}` : s.url;
+            const detail = s.transport_type === "stdio" ? `${s.command} ${(s.args || []).join(" ")}` : s.url;
             html += `
                 <div class="session-row">
                     <div class="row-title">${escapeHtml(s.name)}</div>
@@ -391,18 +548,50 @@ async function loadRuleDetail(ruleId) {
         html += `<div class="detail-top">`;
         html += `<button class="back-btn">返回</button>`;
         html += `<div class="detail-title">${escapeHtml(rule?.name || ruleId)}</div>`;
+        html += `<div class="detail-actions">`;
+        html += `<button class="export-btn edit-rule-btn" data-id="${escapeAttr(ruleId)}">编辑</button>`;
+        html += `</div>`;
         html += `</div>`;
         html += `<div class="detail-meta">`;
         html += `<span class="source-tag ${rule?.scope || ""}">${rule?.scope || ""}</span>`;
         html += `<span>${body.length.toLocaleString()} 字符</span>`;
         html += `</div></div>`;
-        html += `<div class="detail-content">${escapeHtml(body)}</div>`;
+        html += `<div class="detail-content" id="rule-content">${escapeHtml(body)}</div>`;
         html += `</div>`;
         content.innerHTML = html;
 
         content.querySelector(".back-btn")?.addEventListener("click", () => {
             state.viewMode = "list";
             renderRulesListView();
+        });
+
+        // Edit button
+        content.querySelector(".edit-rule-btn")?.addEventListener("click", () => {
+            const ruleContent = document.getElementById("rule-content");
+            const currentText = body;
+            ruleContent.innerHTML = `
+                <textarea class="edit-textarea" style="width:100%;height:calc(100vh - 260px);font-family:var(--font);font-size:13px;padding:12px;background:var(--bg-surface);color:var(--text);border:1px solid var(--border);resize:none;white-space:pre;tab-size:4;">${escapeHtml(currentText)}</textarea>
+                <div style="margin-top:8px;display:flex;gap:8px;">
+                    <button class="back-btn save-rule-btn">保存</button>
+                    <button class="back-btn cancel-edit-btn" style="background:transparent;color:var(--text-secondary);">取消</button>
+                </div>`;
+            ruleContent.style.whiteSpace = "normal";
+
+            content.querySelector(".cancel-edit-btn")?.addEventListener("click", () => loadRuleDetail(ruleId));
+            content.querySelector(".save-rule-btn")?.addEventListener("click", async () => {
+                const textarea = ruleContent.querySelector("textarea");
+                try {
+                    await apiCall(`/api/rules/${encodeURIComponent(ruleId)}/content`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ content: textarea.value }),
+                    });
+                    showToast("规则已保存", "success");
+                    loadRuleDetail(ruleId);
+                } catch (err) {
+                    showToast(`保存失败: ${err.message}`, "error");
+                }
+            });
         });
     } catch (err) {
         content.innerHTML = `<div class="empty-state"><div class="empty-title">${escapeHtml(err.message)}</div></div>`;
@@ -502,6 +691,9 @@ function renderMarkdown(text) {
     if (!text) return "";
     let html = escapeHtml(text);
 
+    // code blocks (must come before inline code)
+    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, "<pre><code>$2</code></pre>");
+
     // headings
     html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
@@ -513,11 +705,8 @@ function renderMarkdown(text) {
     // italic
     html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
 
-    // inline code
+    // inline code (after code blocks to avoid matching inside them)
     html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-
-    // code blocks
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>");
 
     // links
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
@@ -526,8 +715,12 @@ function renderMarkdown(text) {
     html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
     html = html.replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>");
 
-    // ordered lists
-    html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
+    // ordered lists (process before unordered to avoid conflicts)
+    html = html.replace(/^\d+\. (.+)$/gm, "<oli>$1</oli>");
+    html = html.replace(/(<oli>.*<\/oli>\n?)+/g, "<ol>$&</ol>");
+    html = html.replace(/<\/?oli>/g, function(tag) {
+        return tag.replace("oli", "li");
+    });
 
     // blockquotes
     html = html.replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>");
@@ -547,6 +740,8 @@ function renderMarkdown(text) {
     html = html.replace(/(<\/pre>)\s*<\/p>/g, "$1");
     html = html.replace(/<p>\s*(<ul>)/g, "$1");
     html = html.replace(/(<\/ul>)\s*<\/p>/g, "$1");
+    html = html.replace(/<p>\s*(<ol>)/g, "$1");
+    html = html.replace(/(<\/ol>)\s*<\/p>/g, "$1");
     html = html.replace(/<p>\s*(<blockquote>)/g, "$1");
     html = html.replace(/(<\/blockquote>)\s*<\/p>/g, "$1");
     html = html.replace(/<p>\s*(<hr>)/g, "$1");
@@ -560,6 +755,8 @@ async function switchSection() {
     const section = state.activeSection;
     const sessionControls = document.querySelector(".session-controls");
     const statsBar = document.getElementById("stats-bar");
+    const batchBar = document.getElementById("batch-bar");
+    const chartsArea = document.getElementById("charts-area");
 
     // hide/show session-specific controls
     if (section === "sessions") {
@@ -568,8 +765,11 @@ async function switchSection() {
         statsBar.querySelectorAll(".stat-label")[1].textContent = "消息";
         statsBar.querySelectorAll(".stat-label")[2].textContent = "TOKENS";
         statsBar.querySelectorAll(".stat-label")[3].textContent = "常用工具";
+        chartsArea.classList.remove("visible");
     } else {
         sessionControls.classList.add("hidden");
+        batchBar.classList.remove("visible");
+        chartsArea.classList.remove("visible");
         statsBar.querySelectorAll(".stat-label")[0].textContent = "Skills";
         statsBar.querySelectorAll(".stat-label")[1].textContent = "MCP";
         statsBar.querySelectorAll(".stat-label")[2].textContent = "Rules";
@@ -578,26 +778,43 @@ async function switchSection() {
 
     state.viewMode = "list";
     state.collapsedGroups.clear();
+    exitBatchMode();
 
     if (section === "sessions") {
         await refreshSessions();
         loadStats();
     } else if (section === "skills") {
-        state.skills = await fetchSkills(state.searchQuery || undefined);
-        renderSkillsListView();
-        try { renderConfigStats(await fetchConfigStats()); } catch {}
+        try {
+            state.skills = await fetchSkills(state.searchQuery || undefined);
+            renderSkillsListView();
+            renderConfigStats(await fetchConfigStats());
+        } catch (err) {
+            showToast(`加载失败: ${err.message}`, "error");
+        }
     } else if (section === "mcp") {
-        state.mcpServers = await fetchMcpServers(state.searchQuery || undefined);
-        renderMcpListView();
-        try { renderConfigStats(await fetchConfigStats()); } catch {}
+        try {
+            state.mcpServers = await fetchMcpServers(state.searchQuery || undefined);
+            renderMcpListView();
+            renderConfigStats(await fetchConfigStats());
+        } catch (err) {
+            showToast(`加载失败: ${err.message}`, "error");
+        }
     } else if (section === "rules") {
-        state.rules = await fetchRules(null, state.searchQuery || undefined);
-        renderRulesListView();
-        try { renderConfigStats(await fetchConfigStats()); } catch {}
+        try {
+            state.rules = await fetchRules(null, state.searchQuery || undefined);
+            renderRulesListView();
+            renderConfigStats(await fetchConfigStats());
+        } catch (err) {
+            showToast(`加载失败: ${err.message}`, "error");
+        }
     } else if (section === "plugins") {
-        state.plugins = await fetchPlugins(state.searchQuery || undefined);
-        renderPluginsListView();
-        try { renderConfigStats(await fetchConfigStats()); } catch {}
+        try {
+            state.plugins = await fetchPlugins(state.searchQuery || undefined);
+            renderPluginsListView();
+            renderConfigStats(await fetchConfigStats());
+        } catch (err) {
+            showToast(`加载失败: ${err.message}`, "error");
+        }
     }
 }
 
@@ -632,6 +849,63 @@ function groupSessions(sessions, by) {
     return groups;
 }
 
+// ── Pagination ──
+function renderPagination() {
+    if (state.totalPages <= 1) return "";
+    let html = `<div class="pagination">`;
+    html += `<button class="page-btn" data-page="${state.page - 1}" ${state.page <= 1 ? "disabled" : ""}>上一页</button>`;
+    const maxVisible = 7;
+    let startPage = Math.max(1, state.page - Math.floor(maxVisible / 2));
+    let endPage = Math.min(state.totalPages, startPage + maxVisible - 1);
+    if (endPage - startPage < maxVisible - 1) {
+        startPage = Math.max(1, endPage - maxVisible + 1);
+    }
+    if (startPage > 1) {
+        html += `<button class="page-btn" data-page="1">1</button>`;
+        if (startPage > 2) html += `<span class="page-info">...</span>`;
+    }
+    for (let i = startPage; i <= endPage; i++) {
+        html += `<button class="page-btn${i === state.page ? " active" : ""}" data-page="${i}">${i}</button>`;
+    }
+    if (endPage < state.totalPages) {
+        if (endPage < state.totalPages - 1) html += `<span class="page-info">...</span>`;
+        html += `<button class="page-btn" data-page="${state.totalPages}">${state.totalPages}</button>`;
+    }
+    html += `<button class="page-btn" data-page="${state.page + 1}" ${state.page >= state.totalPages ? "disabled" : ""}>下一页</button>`;
+    html += `<span class="page-info">${state.total} 条</span>`;
+    html += `</div>`;
+    return html;
+}
+
+function bindPagination(container) {
+    container.querySelectorAll(".page-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+            const page = parseInt(btn.dataset.page);
+            if (page < 1 || page > state.totalPages || page === state.page) return;
+            state.page = page;
+            await refreshSessions();
+        });
+    });
+}
+
+// ── Batch Operations ──
+function enterBatchMode() {
+    state.batchMode = true;
+    state.selected.clear();
+    document.getElementById("batch-bar").classList.add("visible");
+    renderListView();
+}
+
+function exitBatchMode() {
+    state.batchMode = false;
+    state.selected.clear();
+    document.getElementById("batch-bar").classList.remove("visible");
+}
+
+function updateBatchCount() {
+    document.getElementById("batch-count").textContent = `已选 ${state.selected.size} 项`;
+}
+
 // ── List View ──
 function renderListView() {
     state.viewMode = "list";
@@ -664,28 +938,40 @@ function renderListView() {
     });
 
     for (const groupName of sortedKeys) {
-        const groupSessions = groups[groupName];
+        const groupItems = groups[groupName];
         const collapsed = state.collapsedGroups.has(groupName);
         html += `
             <div class="group" data-group="${escapeAttr(groupName)}">
                 <div class="group-header ${collapsed ? "collapsed" : ""}">
                     <span class="group-arrow">${collapsed ? "▸" : "▾"}</span>
                     <span class="group-name">${escapeHtml(groupName)}</span>
-                    <span class="group-count">${groupSessions.length}</span>
+                    <span class="group-count">${groupItems.length}</span>
                 </div>
                 <div class="group-items" ${collapsed ? 'style="display:none"' : ""}>`;
 
-        for (const s of groupSessions) {
+        for (const s of groupItems) {
             const modelShort = s.model ? s.model.split("/").pop().split(":")[0] : "";
             const date = formatRelativeTime(s.updated_at);
             const totalTokens = (s.total_input_tokens || 0) + (s.total_output_tokens || 0);
+            const isFav = state.favorites.has(`${s.source}:${s.id}`);
+            const isSelected = state.selected.has(`${s.source}:${s.id}`);
+            const checkHtml = state.batchMode
+                ? `<input type="checkbox" class="row-check" data-key="${escapeAttr(s.source + ":" + s.id)}" ${isSelected ? "checked" : ""}>`
+                : "";
+            const favHtml = `<span class="fav-star${isFav ? " active" : ""}" data-source="${escapeAttr(s.source)}" data-id="${escapeAttr(s.id)}" title="收藏">${isFav ? "★" : "☆"}</span>`;
+            const noteKey = `${s.source}:${s.id}`;
+            const noteText = state.notes[noteKey] || "";
+            const noteHtml = noteText ? `<span class="note-indicator" title="${escapeAttr(noteText)}">${escapeHtml(noteText.slice(0, 15))}${noteText.length > 15 ? "..." : ""}</span>` : "";
             html += `
-                <div class="session-row" data-id="${s.id}" data-source="${s.source}">
+                <div class="session-row${isSelected ? " selected" : ""}" data-id="${escapeAttr(s.id)}" data-source="${escapeAttr(s.source)}">
+                    ${checkHtml}
+                    ${favHtml}
                     <div class="row-title">${escapeHtml(s.title)}</div>
                     <div class="row-meta">
                         <span class="source-tag ${s.source}">${s.source}</span>
                         ${modelShort ? `<span class="row-model">${escapeHtml(modelShort)}</span>` : ""}
                         ${totalTokens > 0 ? `<span class="row-tokens">${formatTokenCount(totalTokens)}</span>` : ""}
+                        ${noteHtml}
                         <span class="row-date">${date}</span>
                     </div>
                 </div>`;
@@ -693,6 +979,7 @@ function renderListView() {
         html += `</div></div>`;
     }
     html += `</div>`;
+    html += renderPagination();
     content.innerHTML = html;
 
     // bind group headers
@@ -710,27 +997,76 @@ function renderListView() {
 
     // bind session rows
     content.querySelectorAll(".session-row").forEach((el) => {
-        el.addEventListener("click", () => {
+        el.addEventListener("click", (e) => {
+            if (e.target.classList.contains("row-check") || e.target.classList.contains("fav-star")) return;
+            if (state.batchMode) {
+                const check = el.querySelector(".row-check");
+                if (check) {
+                    check.checked = !check.checked;
+                    const key = check.dataset.key;
+                    if (check.checked) state.selected.add(key);
+                    else state.selected.delete(key);
+                    el.classList.toggle("selected", check.checked);
+                    updateBatchCount();
+                }
+                return;
+            }
             loadConversation(el.dataset.source, el.dataset.id);
         });
     });
+
+    // bind checkboxes
+    content.querySelectorAll(".row-check").forEach((check) => {
+        check.addEventListener("change", (e) => {
+            e.stopPropagation();
+            const key = check.dataset.key;
+            if (check.checked) state.selected.add(key);
+            else state.selected.delete(key);
+            check.closest(".session-row").classList.toggle("selected", check.checked);
+            updateBatchCount();
+        });
+    });
+
+    // bind favorite stars
+    content.querySelectorAll(".fav-star").forEach((star) => {
+        star.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const src = star.dataset.source;
+            const sid = star.dataset.id;
+            try {
+                await toggleFavorite(src, sid);
+                const key = `${src}:${sid}`;
+                if (state.favorites.has(key)) {
+                    state.favorites.delete(key);
+                    star.textContent = "☆";
+                    star.classList.remove("active");
+                } else {
+                    state.favorites.add(key);
+                    star.textContent = "★";
+                    star.classList.add("active");
+                }
+            } catch (err) {
+                showToast(`操作失败: ${err.message}`, "error");
+            }
+        });
+    });
+
+    // bind pagination
+    bindPagination(content);
 }
 
 // ── Detail View ──
 async function loadConversation(source, id) {
     state.viewMode = "detail";
-    state.currentSession = { id, source };
+    document.getElementById("stats-bar").style.display = "none";
+    document.getElementById("charts-area").style.display = "none";
 
     const content = document.getElementById("content");
     content.innerHTML = '<div class="loading-state">加载中</div>';
 
     try {
-        const [messages, sessions] = await Promise.all([
-            fetchMessages(source, id),
-            Promise.resolve(state.sessions),
-        ]);
-
-        const session = sessions.find((s) => s.id === id && s.source === source);
+        const messages = await fetchMessages(source, id);
+        const session = state.sessions.find((s) => s.id === id && s.source === source);
         let html = `<div class="detail-view">`;
 
         // header
@@ -748,9 +1084,10 @@ async function loadConversation(source, id) {
                         <button class="back-btn">返回</button>
                         <div class="detail-title">${escapeHtml(session.title)}</div>
                         <div class="detail-actions">
-                            ${source === "claude" ? `<button class="subagents-btn" data-id="${id}" data-source="${source}">子代理</button>` : ""}
-                            <button class="export-btn" data-id="${id}" data-source="${source}">导出</button>
-                            <button class="delete-btn" data-id="${id}" data-source="${source}">删除</button>
+                            ${source === "claude" ? `<button class="subagents-btn" data-id="${escapeAttr(id)}" data-source="${escapeAttr(source)}">子代理</button>` : ""}
+                            <button class="export-btn" data-id="${escapeAttr(id)}" data-source="${escapeAttr(source)}">导出</button>
+                            <button class="note-btn" data-id="${escapeAttr(id)}" data-source="${escapeAttr(source)}">备注</button>
+                            <button class="delete-btn" data-id="${escapeAttr(id)}" data-source="${escapeAttr(source)}">删除</button>
                         </div>
                     </div>
                     <div class="detail-meta">
@@ -781,17 +1118,39 @@ async function loadConversation(source, id) {
             const sid = e.target.dataset.id;
             const src = e.target.dataset.source;
             if (confirm("确定删除此对话？（将移至回收站）")) {
-                await deleteSession(src, sid);
-                state.currentSession = null;
-                await refreshSessions();
-                loadStats();
-                renderListView();
+                try {
+                    await deleteSession(src, sid);
+                    await refreshSessions();
+                    loadStats();
+                    renderListView();
+                    showToast("已删除", "success");
+                } catch (err) {
+                    showToast(`删除失败: ${err.message}`, "error");
+                }
             }
         });
 
         // bind export
         content.querySelector(".export-btn")?.addEventListener("click", (e) => {
             window.open(`/api/sessions/${e.target.dataset.source}/${e.target.dataset.id}/export?format=markdown`, "_blank");
+        });
+
+        // bind note
+        content.querySelector(".note-btn")?.addEventListener("click", async (e) => {
+            const sid = e.target.dataset.id;
+            const src = e.target.dataset.source;
+            try {
+                const data = await fetchNote(src, sid);
+                const note = prompt("输入备注:", data.note || "");
+                if (note !== null) {
+                    await saveNote(src, sid, note);
+                    state.notes[`${src}:${sid}`] = note || undefined;
+                    if (!note) delete state.notes[`${src}:${sid}`];
+                    showToast("备注已保存", "success");
+                }
+            } catch (err) {
+                showToast(`操作失败: ${err.message}`, "error");
+            }
         });
 
         // bind subagents
@@ -801,28 +1160,33 @@ async function loadConversation(source, id) {
             if (existing) { existing.remove(); return; }
 
             btn.textContent = "...";
-            const agents = await fetchSubagents(btn.dataset.source, btn.dataset.id);
-            btn.textContent = "子代理";
+            try {
+                const agents = await fetchSubagents(btn.dataset.source, btn.dataset.id);
+                btn.textContent = "子代理";
 
-            if (agents.length === 0) {
+                if (agents.length === 0) {
+                    const panel = document.createElement("div");
+                    panel.className = "subagents-panel";
+                    panel.innerHTML = '<div class="subagents-empty">没有子代理</div>';
+                    content.querySelector(".detail-header").after(panel);
+                    return;
+                }
+
+                let panelHtml = agents.map((a) => `
+                    <div class="subagent-item">
+                        <span class="subagent-type">${escapeHtml(a.type)}</span>
+                        <span class="subagent-desc">${escapeHtml(a.description)}</span>
+                        <span class="subagent-size">${formatFileSize(a.file_size)}</span>
+                    </div>`).join("");
+
                 const panel = document.createElement("div");
                 panel.className = "subagents-panel";
-                panel.innerHTML = '<div class="subagents-empty">没有子代理</div>';
+                panel.innerHTML = `<div class="subagents-header">${agents.length} 个子代理</div>${panelHtml}`;
                 content.querySelector(".detail-header").after(panel);
-                return;
+            } catch (err) {
+                btn.textContent = "子代理";
+                showToast(`加载子代理失败: ${err.message}`, "error");
             }
-
-            let panelHtml = agents.map((a) => `
-                <div class="subagent-item">
-                    <span class="subagent-type">${escapeHtml(a.type)}</span>
-                    <span class="subagent-desc">${escapeHtml(a.description)}</span>
-                    <span class="subagent-size">${formatFileSize(a.file_size)}</span>
-                </div>`).join("");
-
-            const panel = document.createElement("div");
-            panel.className = "subagents-panel";
-            panel.innerHTML = `<div class="subagents-header">${agents.length} 个子代理</div>${panelHtml}`;
-            content.querySelector(".detail-header").after(panel);
         });
 
         // bind msg-info click to toggle details
@@ -848,8 +1212,9 @@ async function loadConversation(source, id) {
 }
 
 function closeConversation() {
-    state.currentSession = null;
     state.viewMode = "list";
+    document.getElementById("stats-bar").style.display = "";
+    document.getElementById("charts-area").style.display = "";
     renderListView();
 }
 
@@ -925,16 +1290,32 @@ function renderMessage(m) {
 
 // ── Refresh ──
 async function refreshSessions() {
-    state.sessions = await fetchSessions(state.currentSource, state.searchQuery || undefined);
-    if (state.viewMode === "list") renderListView();
+    try {
+        const data = await fetchSessions(
+            state.currentSource,
+            state.searchQuery || undefined,
+            state.page,
+            state.perPage,
+            state.showFavoritesOnly
+        );
+        state.sessions = data.sessions;
+        state.total = data.total;
+        state.totalPages = data.total_pages;
+        state.page = data.page;
+        if (state.viewMode === "list") renderListView();
+    } catch (err) {
+        showToast(`加载失败: ${err.message}`, "error");
+    }
 }
 
 // ── Utilities ──
 function escapeHtml(text) {
-    if (!text) return "";
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
+    if (text == null) return "";
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
 }
 
 function escapeAttr(text) {
@@ -978,18 +1359,47 @@ function formatRelativeTime(isoString) {
 async function loadStats() {
     try {
         renderStats(await fetchStats());
-    } catch {}
+    } catch (err) {
+        showToast(`加载统计失败: ${err.message}`, "error");
+    }
+}
+
+// ── Theme Toggle ──
+function initTheme() {
+    const saved = localStorage.getItem("theme") || "light";
+    document.body.setAttribute("data-theme", saved);
+    updateThemeButton(saved);
+}
+
+function toggleTheme() {
+    const current = document.body.getAttribute("data-theme") || "light";
+    const next = current === "dark" ? "light" : "dark";
+    document.body.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
+    updateThemeButton(next);
+    // Redraw charts with new colors
+    if (state.activeSection === "sessions") loadStats();
+}
+
+function updateThemeButton(theme) {
+    const btn = document.getElementById("theme-toggle");
+    if (btn) btn.textContent = theme === "dark" ? "☾" : "☀";
 }
 
 // ── Event Bindings ──
+
+// Theme toggle
+document.getElementById("theme-toggle")?.addEventListener("click", toggleTheme);
 
 // Source filter
 document.querySelectorAll(".filter-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
         document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        state.currentSource = btn.dataset.source === "all" ? null : btn.dataset.source;
-        state.currentSession = null;
+        const src = btn.dataset.source;
+        state.showFavoritesOnly = src === "favorites";
+        state.currentSource = (src === "all" || src === "favorites") ? null : src;
+        state.page = 1;
         await refreshSessions();
     });
 });
@@ -1012,6 +1422,8 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
         btn.classList.add("active");
         state.activeSection = btn.dataset.section;
         state.searchQuery = "";
+        state.page = 1;
+        clearTimeout(state.searchTimer);
         document.getElementById("search").value = "";
         await switchSection();
     });
@@ -1022,12 +1434,68 @@ document.getElementById("search").addEventListener("input", (e) => {
     state.searchQuery = e.target.value;
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(() => {
+        state.page = 1;
         if (state.activeSection === "sessions") {
             refreshSessions();
         } else {
             switchSection();
         }
     }, 300);
+});
+
+// Batch operations
+document.getElementById("batch-select-all")?.addEventListener("click", () => {
+    const allKeys = state.sessions.map(s => `${s.source}:${s.id}`);
+    const allSelected = allKeys.every(k => state.selected.has(k));
+    if (allSelected) {
+        state.selected.clear();
+    } else {
+        allKeys.forEach(k => state.selected.add(k));
+    }
+    updateBatchCount();
+    renderListView();
+});
+
+document.getElementById("batch-delete")?.addEventListener("click", async () => {
+    if (state.selected.size === 0) return;
+    if (!confirm(`确定删除 ${state.selected.size} 个对话？（将移至回收站）`)) return;
+    const sessions = Array.from(state.selected).map(key => {
+        const [source, id] = key.split(":");
+        return { source, id };
+    });
+    try {
+        await deleteSessionsBatch(sessions);
+        showToast(`已删除 ${sessions.length} 个对话`, "success");
+        exitBatchMode();
+        await refreshSessions();
+        loadStats();
+    } catch (err) {
+        showToast(`批量删除失败: ${err.message}`, "error");
+    }
+});
+
+document.getElementById("batch-export")?.addEventListener("click", () => {
+    if (state.selected.size === 0) return;
+    const ids = Array.from(state.selected).join(",");
+    window.open(`/api/sessions/export-all?format=markdown&ids=${encodeURIComponent(ids)}`, "_blank");
+});
+
+document.getElementById("batch-cancel")?.addEventListener("click", () => {
+    exitBatchMode();
+    renderListView();
+});
+
+document.getElementById("export-all")?.addEventListener("click", () => {
+    window.open("/api/sessions/export-all?format=json", "_blank");
+});
+
+// Right-click to enter batch mode
+document.getElementById("content")?.addEventListener("contextmenu", (e) => {
+    if (state.activeSection !== "sessions" || state.viewMode !== "list") return;
+    if (!state.batchMode) {
+        e.preventDefault();
+        enterBatchMode();
+    }
 });
 
 // Keyboard
@@ -1044,12 +1512,16 @@ document.addEventListener("keydown", (e) => {
         if (document.activeElement === search) {
             search.value = "";
             state.searchQuery = "";
+            state.page = 1;
             if (state.activeSection === "sessions") {
                 refreshSessions();
             } else {
                 switchSection();
             }
             search.blur();
+        } else if (state.batchMode) {
+            exitBatchMode();
+            renderListView();
         } else if (state.viewMode === "detail") {
             if (state.activeSection === "sessions") {
                 closeConversation();
@@ -1064,7 +1536,51 @@ document.addEventListener("keydown", (e) => {
 
 // ── Init ──
 (async () => {
-    state.sessions = await fetchSessions();
-    renderListView();
-    loadStats();
+    initTheme();
+    try {
+        // Load favorites and notes
+        try {
+            const [favData, notesData] = await Promise.all([
+                fetchFavorites(),
+                fetchAllNotes(),
+            ]);
+            state.favorites = new Set(favData.favorites || []);
+            state.notes = notesData.notes || {};
+        } catch (err) {
+            showToast(`加载收藏/备注失败: ${err.message}`, "error");
+        }
+
+        const data = await fetchSessions(undefined, undefined, 1, state.perPage);
+        state.sessions = data.sessions;
+        state.total = data.total;
+        state.totalPages = data.total_pages;
+        state.page = data.page;
+        renderListView();
+        loadStats();
+    } catch (err) {
+        showToast(`初始化失败: ${err.message}`, "error");
+        document.getElementById("content").innerHTML = `<div class="empty-state"><div class="empty-title">加载失败: ${escapeHtml(err.message)}</div></div>`;
+    }
+
+    // SSE for real-time updates
+    try {
+        const evtSource = new EventSource("/api/events");
+        evtSource.onmessage = (e) => {
+            if (!e.data) return;
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type === "sessions_changed") {
+                    showToast(`检测到新对话 (${data.count} 个)`, "info");
+                    if (state.activeSection === "sessions" && state.viewMode === "list") {
+                        state.page = 1;
+                        refreshSessions();
+                        loadStats();
+                    }
+                }
+            } catch {}
+        };
+        evtSource.onerror = () => {
+            // SSE will auto-reconnect
+        };
+    } catch {}
 })();

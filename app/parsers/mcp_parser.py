@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from app.models import McpServerSummary
+from app.parsers.utils import decode_project_path
+
+logger = logging.getLogger(__name__)
 
 
 class McpParser:
@@ -11,14 +15,6 @@ class McpParser:
         self.marketplaces_dir = Path.home() / ".claude" / "plugins" / "marketplaces"
         self.settings_path = Path.home() / ".claude" / "settings.json"
         self.projects_dir = Path.home() / ".claude" / "projects"
-
-    def _decode_project_path(self, encoded: str) -> str:
-        if "--" in encoded:
-            parts = encoded.split("--", 1)
-            drive = parts[0]
-            rest = parts[1].replace("-", "_")
-            return f"{drive}:\\{rest}"
-        return encoded
 
     def list_servers(self) -> list[McpServerSummary]:
         servers: list[McpServerSummary] = []
@@ -53,15 +49,15 @@ class McpParser:
                         if s.id not in seen_ids:
                             servers.append(s)
                             seen_ids.add(s.id)
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError) as e:
+                logger.debug("Failed to read settings.json mcpServers: %s", e)
 
         # 3. Scan project directories for .mcp.json (project-level)
         if self.projects_dir.exists():
             for project_dir in self.projects_dir.iterdir():
                 if not project_dir.is_dir():
                     continue
-                project_path = self._decode_project_path(project_dir.name)
+                project_path = decode_project_path(project_dir.name)
                 mcp_file = project_dir / ".mcp.json"
                 if mcp_file.exists():
                     for s in self._parse_mcp_file(mcp_file, project_dir.name, "project", project_path):
@@ -76,8 +72,8 @@ class McpParser:
                             if isinstance(config, dict):
                                 s = self._make_summary(name, config, project_dir.name, str(settings_local), "project", project_path)
                                 servers.append(s)
-                    except Exception:
-                        pass
+                    except (OSError, json.JSONDecodeError) as e:
+                        logger.debug("Failed to read settings.local.json: %s", e)
 
         servers.sort(key=lambda s: (0 if s.scope == "user" else 1, s.name))
         return servers
@@ -89,8 +85,8 @@ class McpParser:
             for name, config in data.items():
                 if isinstance(config, dict):
                     servers.append(self._make_summary(name, config, marketplace, str(path), scope, project_path))
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug("Failed to parse MCP file %s: %s", path, e)
         return servers
 
     def _make_summary(self, name: str, config: dict, marketplace: str, source_file: str, scope: str = "user", project_path: str = "") -> McpServerSummary:

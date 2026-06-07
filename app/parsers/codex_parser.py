@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models import Message, SessionSummary, TokenUsage, ToolCall
 from app.parsers.base import SessionParser
+
+logger = logging.getLogger(__name__)
 
 
 class CodexParser(SessionParser):
@@ -31,6 +34,21 @@ class CodexParser(SessionParser):
                 "FROM threads ORDER BY updated_at DESC"
             ).fetchall()
             return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def _get_thread_by_id(self, session_id: str) -> dict | None:
+        if not self.db_path.exists():
+            return None
+        conn = self._get_connection()
+        try:
+            row = conn.execute(
+                "SELECT id, title, model, model_provider, cwd, created_at, "
+                "updated_at, tokens_used, archived, rollout_path, "
+                "git_sha, git_branch, first_user_message "
+                "FROM threads WHERE id = ?", (session_id,)
+            ).fetchone()
+            return dict(row) if row else None
         finally:
             conn.close()
 
@@ -166,8 +184,8 @@ class CodexParser(SessionParser):
                                 content=f"[Error] {err}",
                             ))
 
-        except (OSError, UnicodeDecodeError):
-            pass
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning("Failed to parse rollout %s: %s", rollout_path, e)
 
         return messages, session_meta
 
@@ -190,26 +208,6 @@ class CodexParser(SessionParser):
         return str(content)
 
     @staticmethod
-    def _extract_output_text(content) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            texts = []
-            for block in content:
-                if isinstance(block, dict):
-                    btype = block.get("type", "")
-                    if btype == "output_text":
-                        t = block.get("text", "")
-                        if t:
-                            texts.append(t)
-                    elif btype == "text":
-                        t = block.get("text", "")
-                        if t:
-                            texts.append(t)
-            return "\n".join(texts)
-        return str(content)
-
-    @staticmethod
     def _extract_output_with_tools(content) -> tuple[str, list[ToolCall]]:
         """Extract text and tool calls from assistant output content."""
         if isinstance(content, str):
@@ -226,11 +224,17 @@ class CodexParser(SessionParser):
                     if t:
                         texts.append(t)
                 elif btype == "function_call":
+                    args = block.get("arguments", "")
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            args = {"raw": args}
                     tool_calls.append(ToolCall(
                         id=block.get("call_id", ""),
                         name=block.get("name", ""),
-                        input_summary=str(block.get("arguments", ""))[:100],
-                        input_full={"arguments": block.get("arguments", "")},
+                        input_summary=str(args)[:100],
+                        input_full=args if isinstance(args, dict) else {"arguments": args},
                     ))
             return "\n".join(texts), tool_calls
         return str(content), []
@@ -243,15 +247,16 @@ class CodexParser(SessionParser):
             uts = thread["updated_at"]
             updated = datetime.fromtimestamp(uts, tz=timezone.utc) if uts else created
 
-            cwd = thread.get("cwd", "")
+            cwd = thread.get("cwd") or ""
             if cwd.startswith("\\\\?\\"):
                 cwd = cwd[4:]
 
-            # Parse rollout once for metadata + message count
+            # Parse rollout once for metadata + message count + tool counts
             total_input = 0
             total_output = 0
             duration_ms = None
             msg_count = 0
+            tool_call_counts: dict[str, int] = {}
             rollout_path = thread.get("rollout_path", "")
             if rollout_path:
                 msgs, meta = self._parse_rollout_full(rollout_path)
@@ -259,15 +264,18 @@ class CodexParser(SessionParser):
                 total_output = meta.get("total_output_tokens", 0)
                 duration_ms = meta.get("duration_ms")
                 msg_count = len(msgs)
+                for m in msgs:
+                    for tc in m.tool_calls:
+                        tool_call_counts[tc.name] = tool_call_counts.get(tc.name, 0) + 1
 
-            title = thread.get("title") or thread.get("first_user_message", "")[:80] or thread["id"]
+            title = thread.get("title") or (thread.get("first_user_message") or "")[:80] or thread["id"]
 
             sessions.append(SessionSummary(
                 id=thread["id"],
                 source="codex",
                 title=title,
                 project=cwd,
-                model=thread.get("model", ""),
+                model=thread.get("model") or "",
                 created_at=created,
                 updated_at=updated,
                 message_count=msg_count,
@@ -276,39 +284,40 @@ class CodexParser(SessionParser):
                 total_input_tokens=total_input,
                 total_output_tokens=total_output,
                 duration_ms=duration_ms,
-                git_branch=thread.get("git_branch", ""),
+                git_branch=thread.get("git_branch") or "",
+                tool_call_counts=tool_call_counts,
             ))
         sessions.sort(key=lambda s: s.updated_at, reverse=True)
         return sessions
 
     def get_messages(self, session_id: str) -> list[Message]:
-        threads = self._get_threads()
-        for thread in threads:
-            if thread["id"] == session_id:
-                return self._parse_rollout(thread["rollout_path"])
+        thread = self._get_thread_by_id(session_id)
+        if thread and thread.get("rollout_path"):
+            return self._parse_rollout(thread["rollout_path"])
         return []
 
     def delete_session(self, session_id: str) -> bool:
         from send2trash import send2trash
 
-        threads = self._get_threads()
-        for thread in threads:
-            if thread["id"] == session_id:
-                rollout_path = thread.get("rollout_path", "")
+        thread = self._get_thread_by_id(session_id)
+        if not thread:
+            return False
 
-                if rollout_path and Path(rollout_path).exists():
-                    try:
-                        send2trash(rollout_path)
-                    except Exception:
-                        pass
+        rollout_path = thread.get("rollout_path", "")
+        if rollout_path and Path(rollout_path).exists():
+            try:
+                send2trash(rollout_path)
+            except OSError as e:
+                logger.warning("Failed to send rollout to trash: %s", e)
+                return False
 
-                conn = self._get_connection()
-                try:
-                    conn.execute("DELETE FROM threads WHERE id = ?", (session_id,))
-                    conn.commit()
-                    return True
-                except Exception:
-                    return False
-                finally:
-                    conn.close()
-        return False
+        conn = self._get_connection()
+        try:
+            conn.execute("DELETE FROM threads WHERE id = ?", (session_id,))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.warning("Failed to delete thread %s from DB: %s", session_id, e)
+            return False
+        finally:
+            conn.close()

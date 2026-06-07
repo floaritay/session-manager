@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TokenUsage(BaseModel):
@@ -17,7 +17,7 @@ class ToolCall(BaseModel):
     id: str = ""
     name: str
     input_summary: str = ""
-    input_full: dict = {}
+    input_full: dict = Field(default_factory=dict)
     result_text: str = ""
     is_error: bool = False
     duration_ms: int | None = None
@@ -30,9 +30,9 @@ class Message(BaseModel):
     model: str = ""
     stop_reason: str = ""
     usage: TokenUsage | None = None
-    tool_calls: list[ToolCall] = []
+    tool_calls: list[ToolCall] = Field(default_factory=list)
     thinking: str = ""
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict)
 
 
 class SessionSummary(BaseModel):
@@ -51,6 +51,7 @@ class SessionSummary(BaseModel):
     duration_ms: int | None = None
     ai_title: str = ""
     git_branch: str = ""
+    tool_call_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class SkillSummary(BaseModel):
@@ -71,9 +72,9 @@ class McpServerSummary(BaseModel):
     name: str
     transport_type: str  # "stdio" | "http" | "sse"
     command: str = ""
-    args: list[str] = []
+    args: list[str] = Field(default_factory=list)
     url: str = ""
-    headers: dict = {}
+    headers: dict = Field(default_factory=dict)
     marketplace: str = ""
     source_file: str = ""
     scope: str = "user"  # "user" | "project"

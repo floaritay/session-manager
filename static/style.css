@@ -29,6 +29,36 @@
     --font: 'IBM Plex Mono', 'Consolas', 'Monaco', monospace;
 }
 
+/* ── Dark Mode ── */
+
+[data-theme="dark"] {
+    --bg: #111111;
+    --bg-raised: #1a1a1a;
+    --bg-surface: #222222;
+    --bg-hover: #2a2a2a;
+    --bg-active: #333333;
+
+    --border: #3a3a3a;
+    --border-light: #2a2a2a;
+
+    --text: #e5e5e5;
+    --text-secondary: #aaaaaa;
+    --text-ghost: #777777;
+
+    --accent: #ffffff;
+    --green: #4ade80;
+    --green-dim: #052e16;
+    --purple: #a78bfa;
+    --purple-dim: #1e1040;
+    --red: #f87171;
+    --red-dim: #2d0a0a;
+    --amber: #fbbf24;
+    --amber-dim: #2d1f05;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #444; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: #555; }
+
 *, *::before, *::after {
     margin: 0;
     padding: 0;
@@ -55,6 +85,7 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    overflow: hidden;
 }
 
 /* ═══════ HEADER ═══════ */
@@ -156,7 +187,6 @@ header {
     background: var(--bg);
     border-bottom: 1px solid var(--border);
     align-items: center;
-    flex-shrink: 0;
     overflow-x: auto;
 }
 
@@ -215,11 +245,19 @@ header {
     font-weight: 700;
 }
 
+/* ═══════ SCROLL AREA ═══════ */
+
+.scroll-area {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
 /* ═══════ CONTENT ═══════ */
 
 #content {
     flex: 1;
-    overflow-y: auto;
     background: var(--bg);
 }
 
@@ -801,4 +839,253 @@ header {
 
 .detail-content a:hover {
     text-decoration: underline;
+}
+
+/* ═══════ THEME TOGGLE ═══════ */
+
+.theme-toggle {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+    font-size: 16px;
+}
+
+.theme-toggle:hover {
+    border-color: var(--text);
+    color: var(--text);
+}
+
+/* ═══════ TOAST NOTIFICATIONS ═══════ */
+
+.toast-container {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.toast {
+    padding: 10px 16px;
+    background: var(--bg-raised);
+    border: 2px solid var(--border);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    max-width: 360px;
+    animation: toast-in 0.2s ease-out;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.toast.error {
+    border-color: var(--red);
+    background: var(--red-dim);
+    color: var(--red);
+}
+
+.toast.success {
+    border-color: var(--green);
+    background: var(--green-dim);
+    color: var(--green);
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* ═══════ PAGINATION ═══════ */
+
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+}
+
+.page-btn {
+    padding: 5px 12px;
+    border: 1.5px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.page-btn:hover {
+    border-color: var(--text);
+    color: var(--text);
+}
+
+.page-btn.active {
+    background: var(--text);
+    color: var(--bg);
+    border-color: var(--text);
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.page-info {
+    font-size: 12px;
+    color: var(--text-ghost);
+    margin: 0 8px;
+}
+
+/* ═══════ BATCH OPERATIONS ═══════ */
+
+.batch-bar {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 24px;
+    background: var(--bg-raised);
+    border-bottom: 2px solid var(--text);
+}
+
+.batch-bar.visible { display: flex; }
+
+.batch-count {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.batch-btn {
+    padding: 4px 12px;
+    border: 1.5px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.batch-btn:hover {
+    border-color: var(--text);
+    color: var(--text);
+}
+
+.batch-btn.danger:hover {
+    background: var(--red-dim);
+    color: var(--red);
+    border-color: var(--red);
+}
+
+.session-row .row-check {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--text);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.session-row.selected {
+    background: var(--bg-surface);
+}
+
+/* ═══════ CHART AREA ═══════ */
+
+.charts-area {
+    display: none;
+    padding: 16px 24px;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.charts-area.visible {
+    display: flex;
+}
+
+.chart-box {
+    flex: 1;
+    min-width: 0;
+    height: 200px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    padding: 12px;
+    position: relative;
+}
+
+.chart-box canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* ═══════ FAVORITES ═══════ */
+
+.fav-star {
+    color: var(--text-ghost);
+    cursor: pointer;
+    font-size: 14px;
+    flex-shrink: 0;
+    transition: color 0.1s;
+    user-select: none;
+}
+
+.fav-star:hover, .fav-star.active {
+    color: var(--amber);
+}
+
+.note-indicator {
+    font-size: 10px;
+    padding: 1px 6px;
+    background: var(--amber-dim);
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    border-radius: 2px;
+    flex-shrink: 0;
+    cursor: help;
+    font-weight: 600;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ═══════ EDIT TEXTAREA ═══════ */
+
+.edit-textarea:focus {
+    outline: none;
+    border-color: var(--text);
+}
+
+.note-btn {
+    padding: 5px 12px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1.5px solid var(--border);
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    transition: all 0.1s;
+    flex-shrink: 0;
+}
+
+.note-btn:hover {
+    background: var(--amber-dim);
+    color: var(--amber);
+    border-color: var(--amber);
 }
